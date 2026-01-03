@@ -124,7 +124,7 @@ async def docs_getting_started():
     </div>
 
     <h3>Step 1: Clone the Repository</h3>
-    <pre><code>git clone https://github.com/gkamer/good-morning.git
+    <pre><code>git clone https://github.com/gkamer8/good-morning.git
 cd good-morning</code></pre>
 
     <h3>Step 2: Configure Environment</h3>

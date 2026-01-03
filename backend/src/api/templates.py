@@ -271,7 +271,7 @@ def base_page(title: str, content: str, active_page: str = "") -> str:
     {content}
     <div class="footer">
         <p>Morning Drive - AI-powered personalized morning briefings</p>
-        <p><a href="https://github.com/gkamer/good-morning">View on GitHub</a></p>
+        <p><a href="https://github.com/gkamer8/good-morning">View on GitHub</a></p>
     </div>
 </body>
 </html>
