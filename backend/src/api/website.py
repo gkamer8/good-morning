@@ -183,19 +183,27 @@ async def docs_deployment():
     content = """
     <p>This guide covers deploying Morning Drive to production environments.</p>
 
-    <h3>Docker Deployment (Recommended)</h3>
-    <p>The easiest way to deploy Morning Drive is using Docker Compose:</p>
-    <pre><code>cd morning-drive/backend
+    <div class="note">
+        <strong>Development vs Production:</strong> For local development with auto-reload, see the <a href="/docs/development">Development guide</a> and use <code>./dev.sh</code>. This page covers production deployment.
+    </div>
+
+    <h3>Docker Deployment (Production)</h3>
+    <p>For production deployment without auto-reload:</p>
+    <pre><code>cd good-morning/backend
 
 # Create and configure environment
 cp .env.example .env
 nano .env  # Add your API keys
 
-# Start all services
-docker-compose up -d
+# Build and start (production mode)
+docker compose -f docker-compose.yml up -d --build
 
 # View logs
-docker-compose logs -f morning-drive</code></pre>
+docker compose logs -f morning-drive</code></pre>
+
+    <div class="warning">
+        <strong>Note:</strong> Running <code>docker compose up</code> in the backend directory will automatically use the development override (with auto-reload). For production, explicitly specify <code>-f docker-compose.yml</code> to skip the override.
+    </div>
 
     <h3>Services Overview</h3>
     <table>
@@ -285,9 +293,33 @@ async def docs_development():
 
     <h3>Backend Development</h3>
 
-    <h4>Local Setup</h4>
+    <h4>Quick Start (Recommended)</h4>
+    <p>The easiest way to run the backend in development mode with auto-reload:</p>
     <pre><code># Navigate to backend directory
-cd morning-drive/backend
+cd good-morning/backend
+
+# Copy environment configuration
+cp .env.example .env
+# Edit .env with your API keys
+
+# Start in development mode
+./dev.sh</code></pre>
+
+    <p>This script:</p>
+    <ul>
+        <li>Automatically detects your machine's IP address</li>
+        <li>Starts the server with hot-reload enabled</li>
+        <li>Mounts source code so changes apply instantly</li>
+        <li>Starts MinIO for music storage</li>
+    </ul>
+
+    <div class="note">
+        <strong>Auto-reload:</strong> When running via <code>dev.sh</code>, any changes to Python files in <code>src/</code> will automatically reload the server. No rebuild required!
+    </div>
+
+    <h4>Manual Setup (Without Docker)</h4>
+    <pre><code># Navigate to backend directory
+cd good-morning/backend
 
 # Create a virtual environment
 python -m venv venv
@@ -298,21 +330,24 @@ pip install -e ".[dev]"
 
 # Copy environment configuration
 cp .env.example .env
-# Edit .env with your API keys</code></pre>
+# Edit .env with your API keys
 
-    <h4>Running the Server Locally</h4>
-    <pre><code># Start the development server with auto-reload
-python -m src.main
-
-# Server runs at http://localhost:8000
-# Debug mode enables auto-reload when DEBUG=true</code></pre>
+# Start the development server
+python -m src.main</code></pre>
 
     <h4>Running MinIO for Music Storage</h4>
-    <pre><code># Start just the MinIO service
-docker-compose up -d minio
+    <pre><code># Start just the MinIO service (if not using dev.sh)
+docker compose up -d minio
 
 # MinIO Console: http://localhost:9001
 # Default credentials: minioadmin / minioadmin</code></pre>
+
+    <h4>Viewing Logs</h4>
+    <pre><code># Follow backend logs
+docker compose logs -f morning-drive
+
+# View last 100 lines
+docker compose logs --tail 100 morning-drive</code></pre>
 
     <h3>iOS App Development</h3>
 
