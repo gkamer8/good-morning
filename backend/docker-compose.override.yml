@@ -1,0 +1,17 @@
+# Development overrides - auto-reload and host IP detection
+# This file is automatically used when running docker-compose up
+
+services:
+  morning-drive:
+    # Mount source code for hot-reload
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./src:/app/src:ro
+    environment:
+      # Pass host machine's IP for the admin panel display
+      - SERVER_IP=${SERVER_IP:-}
+      # Enable debug/reload mode
+      - DEBUG=true
+    # Run with auto-reload
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src"]
