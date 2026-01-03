@@ -1,0 +1,82 @@
+services:
+  morning-drive:
+    build: .
+    container_name: morning-drive
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent storage for database and audio files
+      - ./data:/app/data
+      # Custom audio assets (intro/outro music, transitions)
+      - ./assets:/app/assets
+    environment:
+      # Required API keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      # Optional API keys
+      - NEWS_API_KEY=${NEWS_API_KEY:-}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:-}
+      # Application settings
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_URL=sqlite+aiosqlite:///./data/morning_drive.db
+      # MinIO settings
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET=morning-drive-music
+      # Admin interface
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  # MinIO for music storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: morning-drive-minio
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # Optional: Scheduler service for automatic generation
+  scheduler:
+    build: .
+    container_name: morning-drive-scheduler
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - NEWS_API_KEY=${NEWS_API_KEY:-}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:-}
+      - DATABASE_URL=sqlite+aiosqlite:///./data/morning_drive.db
+    command: ["python", "-m", "src.scheduler"]
+    restart: unless-stopped
+    depends_on:
+      - morning-drive
+    profiles:
+      - with-scheduler
+
+volumes:
+  minio_data:
