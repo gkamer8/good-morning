@@ -454,7 +454,7 @@ export function SettingsScreen() {
       {/* Only show rest of settings when loaded successfully */}
       {!isContentLoading && !hasConnectionError && (
         <>
-      {/* Briefing Duration */}
+          {/* Briefing Duration */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Briefing Duration</Text>
         <View style={styles.card}>
