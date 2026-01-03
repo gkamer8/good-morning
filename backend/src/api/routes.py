@@ -28,6 +28,14 @@ from src.api.schemas import (
 from src.config import get_settings
 from src.storage.database import Briefing, MusicPiece, Schedule, UserSettings, get_session
 
+# Valid ElevenLabs voice IDs (Rachel, Adam, Arnold)
+VALID_VOICE_IDS = {
+    "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    "pNInz6obpgDQGcFmaJgB",  # Adam
+    "VR6AewLTigWG4xSOukaG",  # Arnold
+}
+DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
+
 router = APIRouter()
 settings = get_settings()
 
@@ -329,6 +337,10 @@ async def update_settings(
         elif field == "weather_locations":
             # Convert WeatherLocation models to dicts
             value = [loc.model_dump() if hasattr(loc, "model_dump") else loc for loc in value]
+        elif field == "voice_id":
+            # Validate voice_id - use default if invalid
+            if value not in VALID_VOICE_IDS:
+                value = DEFAULT_VOICE_ID
         setattr(user_settings, field, value)
 
     await session.commit()
