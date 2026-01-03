@@ -990,12 +990,12 @@ export function SettingsScreen() {
           <View style={styles.toggleRow}>
             <View style={styles.toggleLabelContainer}>
               <Text style={styles.toggleLabel}>Classical Music Corner</Text>
-              <Text style={styles.toggleHint}>Daily fun facts about a classical piece</Text>
+              <Text style={styles.toggleHint}>Include a classical piece with introduction</Text>
             </View>
             <Switch
-              value={settings?.include_classical_music}
-              onValueChange={(include_classical_music) =>
-                updateSettingsMutation.mutate({ include_classical_music })
+              value={settings?.include_music}
+              onValueChange={(include_music) =>
+                updateSettingsMutation.mutate({ include_music })
               }
               trackColor={{ false: '#e0e0e0', true: '#4f46e5' }}
             />

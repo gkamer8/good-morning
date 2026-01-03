@@ -78,7 +78,7 @@ export interface UserSettings {
   voice_style: string;
   voice_speed: number;
   segment_order: string[];
-  include_classical_music: boolean;
+  include_music: boolean;
   updated_at: string;
 }
 
