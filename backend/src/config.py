@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # These are voice IDs from your ElevenLabs account that you want to include
     elevenlabs_custom_voice_ids: list[str] = [
         "BG48ZiEunXWfskS4bWOW",  # Firing Line
+        "2TiFwsBtPecBlV5028ac",  # Timmy C
     ]
 
     # MinIO settings for music storage
