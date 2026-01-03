@@ -140,13 +140,42 @@ class ApiClient {
 
   // === Health ===
 
-  async healthCheck(): Promise<boolean> {
+  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     try {
-      const response = await fetch(`${this.baseUrl}/health`);
-      return response.ok;
-    } catch {
-      return false;
+      const response = await fetch(`${this.baseUrl}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        return { ok: true };
+      } else {
+        return { ok: false, error: `Server returned ${response.status}` };
+      }
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      if (error.name === 'AbortError') {
+        return { ok: false, error: 'Connection timed out (5s)' };
+      }
+
+      // Provide more specific error messages
+      const message = error.message || 'Unknown error';
+      if (message.includes('Network request failed')) {
+        return { ok: false, error: 'Network error - check IP and ensure phone is on same WiFi' };
+      }
+
+      return { ok: false, error: message };
     }
+  }
+
+  // Simple boolean version for backward compatibility
+  async isHealthy(): Promise<boolean> {
+    const result = await this.healthCheck();
+    return result.ok;
   }
 }
 

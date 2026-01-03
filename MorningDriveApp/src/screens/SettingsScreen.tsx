@@ -54,6 +54,7 @@ export function SettingsScreen() {
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamLeague, setNewTeamLeague] = useState('');
   const [newLocationName, setNewLocationName] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Listen for playback end to update preview state
   useEffect(() => {
@@ -365,19 +366,46 @@ export function SettingsScreen() {
   };
 
   const handleSaveServerUrl = async () => {
+    // Validate URL format
+    const urlToTest = localServerUrl.trim();
+    if (!urlToTest) {
+      Alert.alert('Error', 'Please enter a server URL');
+      return;
+    }
+
+    // Ensure URL has protocol
+    let finalUrl = urlToTest;
+    if (!urlToTest.startsWith('http://') && !urlToTest.startsWith('https://')) {
+      finalUrl = `http://${urlToTest}`;
+      setLocalServerUrl(finalUrl);
+    }
+
+    setIsConnecting(true);
+
     try {
-      await api.setBaseUrl(localServerUrl);
-      setServerUrl(localServerUrl);
-      const healthy = await api.healthCheck();
-      setConnected(healthy);
-      if (healthy) {
-        Alert.alert('Connected', 'Successfully connected to server');
+      await api.setBaseUrl(finalUrl);
+      setServerUrl(finalUrl);
+
+      console.log('Testing connection to:', finalUrl);
+      const result = await api.healthCheck();
+      console.log('Health check result:', result);
+
+      setConnected(result.ok);
+
+      if (result.ok) {
+        Alert.alert('Connected', `Successfully connected to ${finalUrl}`);
         queryClient.invalidateQueries();
       } else {
-        Alert.alert('Error', 'Could not connect to server');
+        Alert.alert(
+          'Connection Failed',
+          `Could not connect to server.\n\nURL: ${finalUrl}\n\nError: ${result.error || 'Unknown error'}\n\nMake sure:\n• The backend is running\n• Your phone is on the same WiFi network\n• The IP address is correct`
+        );
       }
-    } catch (error) {
-      Alert.alert('Error', 'Invalid server URL');
+    } catch (error: any) {
+      console.log('Save URL error:', error);
+      Alert.alert('Error', `Failed to save URL: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -419,10 +447,18 @@ export function SettingsScreen() {
             autoCorrect={false}
           />
           <TouchableOpacity
-            style={styles.saveButton}
+            style={[styles.saveButton, isConnecting && { opacity: 0.7 }]}
             onPress={handleSaveServerUrl}
+            disabled={isConnecting}
           >
-            <Text style={styles.saveButtonText}>Save & Connect</Text>
+            {isConnecting ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.saveButtonText}>Connecting...</Text>
+              </View>
+            ) : (
+              <Text style={styles.saveButtonText}>Save & Connect</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
