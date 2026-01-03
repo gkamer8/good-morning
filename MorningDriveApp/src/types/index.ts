@@ -186,11 +186,7 @@ export const DAYS_OF_WEEK = [
 export const VOICE_OPTIONS = [
   { id: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel', description: 'Female, American' },
   { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam', description: 'Male, American' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella', description: 'Female, American' },
   { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold', description: 'Male, American (mature)' },
-  { id: 'IKne3meq5aSn9XLyUdCD', label: 'Charlie', description: 'Male, British' },
-  { id: 'jBpfuIE2acCO8z3wKNLl', label: 'Gigi', description: 'Female, British' },
-  { id: 'MF3mGyEYCl7XYWbV9V6O', label: 'Elli', description: 'Female (mature)' },
 ] as const;
 
 export const VOICE_STYLES = [

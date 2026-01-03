@@ -74,26 +74,26 @@ VOICE_PROFILES = {
     "male_american_40s": "VR6AewLTigWG4xSOukaG",  # Arnold
     "male_american_50s": "VR6AewLTigWG4xSOukaG",  # Arnold
     "female_american_30s": "21m00Tcm4TlvDq8ikWAM",  # Rachel
-    "female_american_40s": "EXAVITQu4vr4xnSDxMaL",  # Bella
+    "female_american_40s": "21m00Tcm4TlvDq8ikWAM",  # Rachel
 
-    # British voices
-    "male_british": "IKne3meq5aSn9XLyUdCD",  # Charlie
-    "female_british": "jBpfuIE2acCO8z3wKNLl",  # Gigi
-    "male_british_30s": "IKne3meq5aSn9XLyUdCD",  # Charlie
-    "male_british_40s": "IKne3meq5aSn9XLyUdCD",  # Charlie
-    "female_british_30s": "jBpfuIE2acCO8z3wKNLl",  # Gigi
+    # British voices (using American voices as fallback)
+    "male_british": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "female_british": "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    "male_british_30s": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "male_british_40s": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "female_british_30s": "21m00Tcm4TlvDq8ikWAM",  # Rachel
 
     # Older voices
     "male_older": "VR6AewLTigWG4xSOukaG",  # Arnold
-    "female_older": "MF3mGyEYCl7XYWbV9V6O",  # Elli
+    "female_older": "21m00Tcm4TlvDq8ikWAM",  # Rachel
     "male_older_60s": "VR6AewLTigWG4xSOukaG",  # Arnold
     "male_older_70s": "VR6AewLTigWG4xSOukaG",  # Arnold
 
     # Regional/international (best approximations with stock voices)
-    "male_australian": "pNInz6obpgDQGcFmaJgB",  # Adam (neutral)
+    "male_australian": "pNInz6obpgDQGcFmaJgB",  # Adam
     "female_australian": "21m00Tcm4TlvDq8ikWAM",  # Rachel
-    "male_irish": "IKne3meq5aSn9XLyUdCD",  # Charlie
-    "female_irish": "jBpfuIE2acCO8z3wKNLl",  # Gigi
+    "male_irish": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "female_irish": "21m00Tcm4TlvDq8ikWAM",  # Rachel
 
     # Note: For more accurate regional voices, consider:
     # - Using ElevenLabs voice cloning
