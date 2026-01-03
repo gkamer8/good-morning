@@ -89,8 +89,8 @@ async def check_minio_health() -> dict:
     try:
         storage = get_minio_storage()
         await storage.ensure_bucket_exists()
-        # Try to list objects (lightweight operation) - use storage.bucket not bucket_name
-        files = await storage.list_files(prefix="")
+        # Try to list objects (lightweight operation)
+        await storage.list_files(prefix="")
         elapsed = time.time() - start_time
         return {
             "name": "MinIO Storage",
@@ -189,7 +189,7 @@ async def generate_music_description(title: str, composer: str) -> str:
     if not settings.anthropic_api_key:
         return ""
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     prompt = f"""Write a brief, engaging introduction for a classical music piece that a radio host would read before playing it. Keep it to 2-3 sentences.
 
@@ -199,7 +199,7 @@ Composer: {composer}
 Include one or two interesting facts about the piece or composer. Make it conversational and suitable for a morning radio show. Do not include any prefixes like "Here's" or "And now" - just the interesting content."""
 
     try:
-        message = client.messages.create(
+        message = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}]
@@ -705,9 +705,9 @@ async def admin_upload_music(
         return RedirectResponse(url="/admin/music?error=File+too+small+to+be+valid+audio", status_code=302)
 
     try:
-        # Auto-detect duration from audio file
+        # Auto-detect duration from audio file (run in thread pool to avoid blocking)
         try:
-            duration_seconds = get_audio_duration(content)
+            duration_seconds = await asyncio.to_thread(get_audio_duration, content)
         except Exception as e:
             print(f"Failed to detect audio duration: {e}")
             return RedirectResponse(
