@@ -323,30 +323,79 @@ docker-compose up -d minio
         <li>CocoaPods (<code>brew install cocoapods</code>)</li>
     </ul>
 
-    <h4>Setup</h4>
+    <h4>Initial Setup</h4>
     <pre><code># Navigate to iOS app directory
-cd morning-drive/ios  # or MorningDriveApp
+cd good-morning/MorningDriveApp
 
 # Install JavaScript dependencies
 npm install
 
 # Install iOS native dependencies
-cd ios && pod install && cd ..
+cd ios && pod install && cd ..</code></pre>
 
-# Run on iOS Simulator
-npm run ios</code></pre>
+    <h4>Starting the Metro Bundler</h4>
+    <p>Metro is the JavaScript bundler for React Native. It must be running for the app to load:</p>
+    <pre><code># Start Metro (keep this terminal open)
+npx react-native start
 
-    <h4>Connecting to Local Backend</h4>
-    <p>When running on a simulator, use your machine's local IP address:</p>
-    <pre><code># Find your local IP
-ipconfig getifaddr en0  # macOS
+# Metro runs on http://localhost:8081</code></pre>
 
-# In the app settings, enter:
-# http://192.168.x.x:8000</code></pre>
+    <h4>Running on iOS Simulator</h4>
+    <pre><code># In a new terminal, run the app
+npx react-native run-ios
+
+# Or specify a simulator
+npx react-native run-ios --simulator="iPhone 15 Pro"</code></pre>
+
+    <h4>Running on Physical iPhone</h4>
+    <ol>
+        <li>Connect your iPhone via USB</li>
+        <li>Open <code>ios/MorningDriveApp.xcworkspace</code> in Xcode</li>
+        <li>Select your device from the device dropdown</li>
+        <li>Click the Run button (or press Cmd+R)</li>
+    </ol>
 
     <div class="note">
-        <strong>Note:</strong> The iOS simulator cannot reach <code>localhost</code>. Always use your machine's IP address.
+        <strong>First-time setup:</strong> You'll need to configure code signing in Xcode with your Apple Developer account.
     </div>
+
+    <h4>Connecting the App to Metro (Physical Device)</h4>
+    <p>When running on a physical device, the app needs to connect to Metro on your computer:</p>
+    <pre><code># Find your computer's IP address
+ipconfig getifaddr en0  # macOS</code></pre>
+    <p>On your iPhone:</p>
+    <ol>
+        <li>Shake the device to open the React Native dev menu</li>
+        <li>Tap <strong>"Configure Bundler"</strong></li>
+        <li>Enter your computer's IP (e.g., <code>192.168.1.100</code>) and port <code>8081</code></li>
+        <li>Tap <strong>"Reload"</strong></li>
+    </ol>
+
+    <h4>Connecting the App to Backend Server</h4>
+    <p>The app also needs to connect to the Morning Drive backend:</p>
+    <ol>
+        <li>Open the app and go to <strong>Settings</strong></li>
+        <li>In the Server URL field, enter your backend URL (e.g., <code>http://192.168.1.100:8000</code>)</li>
+        <li>Tap <strong>"Save & Connect"</strong></li>
+    </ol>
+
+    <div class="note">
+        <strong>Tip:</strong> The backend admin panel shows the server URL you need. Log in at <code>http://localhost:8000/admin</code> to see it.
+    </div>
+
+    <h4>Troubleshooting</h4>
+    <table>
+        <thead>
+            <tr><th>Problem</th><th>Solution</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>App shows white screen</td><td>Make sure Metro is running. Shake device and tap "Reload"</td></tr>
+            <tr><td>Settings page stuck loading</td><td>Backend is unreachable. Check server URL in Settings (always visible at top)</td></tr>
+            <tr><td>"Unable to load script"</td><td>Metro not reachable. Check IP and port in bundler settings</td></tr>
+            <tr><td>Metro shows "BUNDLE" but app doesn't update</td><td>Shake device and tap "Reload", or restart Metro</td></tr>
+            <tr><td>Can't connect to backend</td><td>Ensure phone and computer are on same WiFi network</td></tr>
+        </tbody>
+    </table>
 
     <h3>Running Tests</h3>
 

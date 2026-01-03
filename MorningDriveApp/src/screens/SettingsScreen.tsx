@@ -381,13 +381,9 @@ export function SettingsScreen() {
     }
   };
 
-  if (settingsQuery.isLoading || scheduleQuery.isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
-  }
+  // Show loading state for content below server connection, but always show server connection
+  const isContentLoading = settingsQuery.isLoading || scheduleQuery.isLoading;
+  const hasConnectionError = settingsQuery.isError || scheduleQuery.isError;
 
   return (
     <ScrollView style={styles.container}>
@@ -400,7 +396,7 @@ export function SettingsScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Server Connection */}
+      {/* Server Connection - Always show this first so users can fix connection issues */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Server Connection</Text>
         <View style={styles.card}>
@@ -431,6 +427,33 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      {/* Show error message if connection failed */}
+      {hasConnectionError && (
+        <View style={styles.section}>
+          <View style={[styles.card, { backgroundColor: '#fef2f2', padding: 16 }]}>
+            <Text style={{ color: '#dc2626', fontWeight: '600', marginBottom: 8 }}>
+              Connection Error
+            </Text>
+            <Text style={{ color: '#7f1d1d', fontSize: 14 }}>
+              Could not connect to the server. Please check the server URL above and make sure the backend is running.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Show loading indicator for remaining content */}
+      {isContentLoading && !hasConnectionError && (
+        <View style={styles.section}>
+          <View style={[styles.card, { padding: 24, alignItems: 'center' }]}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+            <Text style={{ marginTop: 12, color: '#666' }}>Loading settings...</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Only show rest of settings when loaded successfully */}
+      {!isContentLoading && !hasConnectionError && (
+        <>
       {/* Briefing Duration */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Briefing Duration</Text>
@@ -1132,6 +1155,8 @@ export function SettingsScreen() {
           </View>
         </View>
       </View>
+        </>
+      )}
 
       <View style={{ height: 50 }} />
     </ScrollView>

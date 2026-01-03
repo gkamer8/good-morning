@@ -15,9 +15,26 @@ from src.storage.minio_storage import get_minio_storage
 
 
 def get_server_ip() -> str:
-    """Get the server's local IP address."""
+    """Get the server's IP address that clients can connect to.
+
+    When running in Docker, this tries to get the host machine's IP
+    rather than the container's internal IP.
+    """
+    import os
+
+    # First check for explicit override via environment variable
+    if os.environ.get("SERVER_IP"):
+        return os.environ["SERVER_IP"]
+
+    # Try to resolve host.docker.internal (works on Docker Desktop for Mac/Windows)
     try:
-        # Create a socket to determine the local IP
+        ip = socket.gethostbyname("host.docker.internal")
+        return ip
+    except socket.gaierror:
+        pass
+
+    # Fall back to detecting via socket connection
+    try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
