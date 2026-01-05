@@ -79,6 +79,7 @@ export interface UserSettings {
   voice_speed: number;
   segment_order: string[];
   include_music: boolean;
+  writing_style: string;
   updated_at: string;
 }
 
@@ -193,6 +194,12 @@ export const VOICE_STYLES = [
   { id: 'energetic', label: 'Energetic', description: 'Upbeat morning show vibe' },
   { id: 'professional', label: 'Professional', description: 'News anchor style' },
   { id: 'calm', label: 'Calm', description: 'Relaxed and soothing' },
+] as const;
+
+export const WRITING_STYLES = [
+  { id: 'good_morning_america', label: 'Good Morning, America', description: 'Upbeat, energetic morning show' },
+  { id: 'firing_line', label: 'Firing Line', description: 'Intellectual wit of William F. Buckley' },
+  { id: 'ernest_hemingway', label: 'Ernest Hemingway', description: 'Terse, direct literary style' },
 ] as const;
 
 export const SEGMENT_TYPES = [

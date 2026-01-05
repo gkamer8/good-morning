@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Generate app icon for Morning Drive"""
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import os
 import math
+import sys
 
-def create_icon(size):
+def create_icon(size, dev_mode=False):
     """Create a sunrise/morning themed icon"""
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -100,9 +101,65 @@ def create_icon(size):
         ]
         draw.arc(bbox, 200, 340, fill=(255, 255, 255, 100 - i * 25), width=arc_width)
 
+    # Add DEV banner for development builds
+    if dev_mode:
+        banner_height = int(size * 0.18)
+        banner_width = int(size * 0.7)
+
+        # Draw diagonal banner background at top-right corner
+        banner_color = (220, 50, 50, 255)  # Red banner
+
+        # Create banner as diagonal strip
+        points = [
+            (size - banner_width, 0),
+            (size, 0),
+            (size, banner_height),
+            (size - banner_width + banner_height, 0),
+        ]
+
+        # Simple horizontal banner at top
+        draw.rectangle(
+            [(0, 0), (size, banner_height)],
+            fill=banner_color
+        )
+
+        # Add DEV text
+        font_size = int(banner_height * 0.65)
+        font = None
+
+        # Try different font paths
+        font_paths = [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial.ttf",
+        ]
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except:
+                continue
+
+        text = "DEV"
+
+        if font:
+            text_bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+        else:
+            # Fallback: estimate text size
+            text_width = int(font_size * 2)
+            text_height = int(font_size * 0.8)
+
+        text_x = (size - text_width) // 2
+        text_y = (banner_height - text_height) // 2 - int(banner_height * 0.15)
+
+        draw.text((text_x, text_y), text, fill=(255, 255, 255, 255), font=font)
+
     return img
 
-def main():
+def generate_icons(output_dir, dev_mode=False):
+    """Generate all icon sizes for an icon set"""
     # iOS icon sizes needed
     sizes = [
         (1024, 'AppIcon-1024.png'),  # App Store
@@ -116,19 +173,42 @@ def main():
         (87, 'AppIcon-29@3x.png'),    # Settings @3x
     ]
 
-    # Output directory
-    output_dir = '/Users/gkamer/Desktop/claude-project/morning-drive/MorningDriveApp/ios/MorningDriveApp/Images.xcassets/AppIcon.appiconset'
     os.makedirs(output_dir, exist_ok=True)
+    mode_label = "DEV " if dev_mode else ""
 
     for size, filename in sizes:
-        print(f"Generating {filename} ({size}x{size})...")
-        icon = create_icon(size)
+        print(f"Generating {mode_label}{filename} ({size}x{size})...")
+        icon = create_icon(size, dev_mode=dev_mode)
         # Convert to RGB for iOS (no alpha in app icons)
         rgb_icon = Image.new('RGB', icon.size, (30, 27, 75))
         rgb_icon.paste(icon, mask=icon.split()[3] if icon.mode == 'RGBA' else None)
         rgb_icon.save(os.path.join(output_dir, filename), 'PNG')
 
+
+def main():
+    # Get script directory to determine project root
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)  # MorningDriveApp
+    assets_dir = os.path.join(project_root, 'ios', 'MorningDriveApp', 'Images.xcassets')
+
+    # Parse arguments
+    generate_dev = '--dev' in sys.argv or '--all' in sys.argv
+    generate_prod = '--prod' in sys.argv or '--all' in sys.argv or len(sys.argv) == 1
+
+    if generate_prod:
+        print("=== Generating Production Icons ===")
+        output_dir = os.path.join(assets_dir, 'AppIcon.appiconset')
+        generate_icons(output_dir, dev_mode=False)
+        print()
+
+    if generate_dev:
+        print("=== Generating Development Icons ===")
+        output_dir = os.path.join(assets_dir, 'AppIcon-Dev.appiconset')
+        generate_icons(output_dir, dev_mode=True)
+        print()
+
     print("Done! Icons generated.")
+
 
 if __name__ == '__main__':
     main()

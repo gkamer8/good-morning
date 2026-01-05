@@ -2,6 +2,7 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import CarPlay
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -14,6 +15,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    print("[AppDelegate] didFinishLaunchingWithOptions")
+    // Initialize React Native factory but DON'T create window or start RN here
+    // The PhoneSceneDelegate will handle that for phone scenes
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -21,15 +25,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-    window = UIWindow(frame: UIScreen.main.bounds)
-
-    factory.startReactNative(
-      withModuleName: "MorningDriveApp",
-      in: window,
-      launchOptions: launchOptions
-    )
-
     return true
+  }
+
+  // MARK: - Scene Configuration
+  func application(
+    _ application: UIApplication,
+    configurationForConnecting connectingSceneSession: UISceneSession,
+    options: UIScene.ConnectionOptions
+  ) -> UISceneConfiguration {
+    print("[AppDelegate] configurationForConnecting role: \(connectingSceneSession.role.rawValue)")
+
+    if connectingSceneSession.role == UISceneSession.Role.carTemplateApplication {
+      print("[AppDelegate] Creating CarPlay scene configuration")
+      let config = UISceneConfiguration(name: "CarPlay", sessionRole: connectingSceneSession.role)
+      config.delegateClass = NSClassFromString("CarSceneDelegate") as? UIResponder.Type
+      return config
+    }
+
+    print("[AppDelegate] Creating Phone scene configuration")
+    let config = UISceneConfiguration(name: "Phone", sessionRole: connectingSceneSession.role)
+    config.delegateClass = PhoneSceneDelegate.self
+    return config
   }
 }
 

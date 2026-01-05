@@ -12,8 +12,8 @@ import {
   VoiceInfo,
 } from '../types';
 
-// Default server URL - update this to your server's IP
-const DEFAULT_BASE_URL = 'http://10.0.0.173:8000';
+// Default server URL - production Cloudflare tunnel
+const DEFAULT_BASE_URL = 'https://morning.g0rdon.com';
 
 class ApiClient {
   private baseUrl: string = DEFAULT_BASE_URL;

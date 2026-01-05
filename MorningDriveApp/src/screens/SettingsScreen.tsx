@@ -2,7 +2,7 @@
  * Settings screen for configuring preferences
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -31,6 +33,7 @@ import {
   DAYS_OF_WEEK,
   VOICE_OPTIONS,
   VOICE_STYLES,
+  WRITING_STYLES,
   SEGMENT_TYPES,
   DEFAULT_SEGMENT_ORDER,
   SportsTeam,
@@ -414,7 +417,16 @@ export function SettingsScreen() {
   const hasConnectionError = settingsQuery.isError || scheduleQuery.isError;
 
   return (
-    <ScrollView style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
+    >
+    <ScrollView
+      style={styles.scrollView}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ paddingBottom: 100 }}
+    >
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -422,45 +434,6 @@ export function SettingsScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={{ width: 24 }} />
-      </View>
-
-      {/* Server Connection - Always show this first so users can fix connection issues */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Server Connection</Text>
-        <View style={styles.card}>
-          <View style={styles.connectionStatus}>
-            <Icon
-              name={isConnected ? 'checkmark-circle' : 'close-circle'}
-              size={20}
-              color={isConnected ? '#22c55e' : '#ef4444'}
-            />
-            <Text style={styles.connectionText}>
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </Text>
-          </View>
-          <TextInput
-            style={styles.input}
-            value={localServerUrl}
-            onChangeText={setLocalServerUrl}
-            placeholder="http://your-server:8000"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity
-            style={[styles.saveButton, isConnecting && { opacity: 0.7 }]}
-            onPress={handleSaveServerUrl}
-            disabled={isConnecting}
-          >
-            {isConnecting ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.saveButtonText}>Connecting...</Text>
-              </View>
-            ) : (
-              <Text style={styles.saveButtonText}>Save & Connect</Text>
-            )}
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Show error message if connection failed */}
@@ -471,7 +444,7 @@ export function SettingsScreen() {
               Connection Error
             </Text>
             <Text style={{ color: '#7f1d1d', fontSize: 14 }}>
-              Could not connect to the server. Please check the server URL above and make sure the backend is running.
+              Could not connect to the server. Check Advanced Settings at the bottom to configure the server URL.
             </Text>
           </View>
         </View>
@@ -1003,13 +976,55 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      {/* Writing Style */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Writing Style</Text>
+        <View style={styles.card}>
+          <Text style={styles.exclusionHint}>
+            Choose a style for how your briefing is written
+          </Text>
+          <View style={styles.writingStyleOptions}>
+            {WRITING_STYLES.map((style) => {
+              const isSelected = (settings?.writing_style || 'good_morning_america') === style.id;
+              return (
+                <TouchableOpacity
+                  key={style.id}
+                  style={[
+                    styles.writingStyleOption,
+                    isSelected && styles.writingStyleOptionSelected,
+                  ]}
+                  onPress={() => updateSettingsMutation.mutate({ writing_style: style.id })}
+                >
+                  <Text
+                    style={[
+                      styles.writingStyleOptionText,
+                      isSelected && styles.writingStyleOptionTextSelected,
+                    ]}
+                  >
+                    {style.label}
+                  </Text>
+                  <Text style={[
+                    styles.writingStyleOptionDesc,
+                    isSelected && styles.writingStyleOptionDescSelected,
+                  ]}>
+                    {style.description}
+                  </Text>
+                  {isSelected && (
+                    <Icon name="checkmark-circle" size={18} color="#fff" style={{ marginTop: 8 }} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+
       {/* Voice Settings */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Voice Settings</Text>
         <View style={styles.card}>
           {/* TTS Provider Selection */}
           <Text style={styles.voiceLabel}>TTS Provider</Text>
-          <Text style={styles.voiceHint}>Edge TTS is free, ElevenLabs has higher quality but costs money</Text>
           <View style={styles.ttsProviderOptions}>
             {[
               { id: 'edge', label: 'Edge TTS', description: 'Free - Microsoft' },
@@ -1025,9 +1040,6 @@ export function SettingsScreen() {
                   ]}
                   onPress={() => updateSettingsMutation.mutate({ tts_provider: provider.id })}
                 >
-                  {isSelected && (
-                    <Icon name="checkmark-circle" size={18} color="#fff" style={{ marginBottom: 4 }} />
-                  )}
                   <Text
                     style={[
                       styles.ttsProviderText,
@@ -1042,6 +1054,9 @@ export function SettingsScreen() {
                   ]}>
                     {provider.description}
                   </Text>
+                  {isSelected && (
+                    <Icon name="checkmark-circle" size={18} color="#fff" style={{ marginTop: 6 }} />
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -1139,9 +1154,6 @@ export function SettingsScreen() {
                   ]}
                   onPress={() => updateSettingsMutation.mutate({ voice_style: style.id })}
                 >
-                  {isSelected && (
-                    <Icon name="checkmark-circle" size={18} color="#fff" style={{ marginBottom: 4 }} />
-                  )}
                   <Text
                     style={[
                       styles.styleOptionText,
@@ -1156,46 +1168,61 @@ export function SettingsScreen() {
                   ]}>
                     {style.description}
                   </Text>
+                  {isSelected && (
+                    <Icon name="checkmark-circle" size={18} color="#fff" style={{ marginTop: 6 }} />
+                  )}
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          <Text style={[styles.voiceLabel, { marginTop: 16 }]}>Speed</Text>
-          <View style={styles.speedOptions}>
-            {[0.9, 1.0, 1.1, 1.2].map((speed) => {
-              const isSelected = settings?.voice_speed === speed;
-              return (
-                <TouchableOpacity
-                  key={speed}
-                  style={[
-                    styles.speedOption,
-                    isSelected && styles.speedOptionSelected,
-                  ]}
-                  onPress={() => updateSettingsMutation.mutate({ voice_speed: speed })}
-                >
-                  {isSelected && (
-                    <Icon name="checkmark" size={14} color="#fff" style={{ marginBottom: 2 }} />
-                  )}
-                  <Text
-                    style={[
-                      styles.speedOptionText,
-                      isSelected && styles.speedOptionTextSelected,
-                    ]}
-                  >
-                    {speed}x
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
         </View>
       </View>
+
         </>
       )}
 
-      <View style={{ height: 50 }} />
+      {/* Advanced Settings - Server Connection (always visible, even during errors) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Advanced Settings</Text>
+        <View style={styles.card}>
+          <View style={styles.connectionStatus}>
+            <Icon
+              name={isConnected ? 'checkmark-circle' : 'close-circle'}
+              size={20}
+              color={isConnected ? '#22c55e' : '#ef4444'}
+            />
+            <Text style={styles.connectionText}>
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            value={localServerUrl}
+            onChangeText={setLocalServerUrl}
+            placeholder="https://your-server.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={[styles.saveButton, isConnecting && { opacity: 0.7 }]}
+            onPress={handleSaveServerUrl}
+            disabled={isConnecting}
+          >
+            {isConnecting ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.saveButtonText}>Connecting...</Text>
+              </View>
+            ) : (
+              <Text style={styles.saveButtonText}>Save & Connect</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1203,6 +1230,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f7',
+  },
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -1550,30 +1580,6 @@ const styles = StyleSheet.create({
   styleOptionDescSelected: {
     color: 'rgba(255,255,255,0.8)',
   },
-  speedOptions: {
-    flexDirection: 'row',
-    paddingHorizontal: 8,
-    gap: 8,
-    paddingBottom: 12,
-  },
-  speedOption: {
-    flex: 1,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: '#f5f5f7',
-    alignItems: 'center',
-  },
-  speedOptionSelected: {
-    backgroundColor: '#4f46e5',
-  },
-  speedOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  speedOptionTextSelected: {
-    color: '#fff',
-  },
   ttsProviderOptions: {
     flexDirection: 'row',
     paddingHorizontal: 8,
@@ -1700,5 +1706,34 @@ const styles = StyleSheet.create({
   },
   timezoneOptionTextSelected: {
     color: '#fff',
+  },
+  writingStyleOptions: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+  },
+  writingStyleOption: {
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#f5f5f7',
+    marginVertical: 4,
+  },
+  writingStyleOptionSelected: {
+    backgroundColor: '#4f46e5',
+  },
+  writingStyleOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  writingStyleOptionTextSelected: {
+    color: '#fff',
+  },
+  writingStyleOptionDesc: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  writingStyleOptionDescSelected: {
+    color: 'rgba(255,255,255,0.8)',
   },
 });

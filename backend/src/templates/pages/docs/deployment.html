@@ -1,0 +1,214 @@
+{% extends "pages/docs/layout.html" %}
+
+{% block title %}Deployment{% endblock %}
+
+{% block doc_content %}
+<p>This guide covers deploying Morning Drive to production environments.</p>
+
+<div class="note">
+    <strong>Development vs Production:</strong> For local development with auto-reload, see the <a href="/docs/development">Development guide</a> and use <code>./dev.sh</code>. This page covers production deployment.
+</div>
+
+<h2>Docker Hub Deployment (Recommended)</h2>
+<p>The recommended approach is to build and push to Docker Hub, then pull the image on your production server. This method:</p>
+<ul>
+    <li>Keeps your production server clean (no build tools needed)</li>
+    <li>Enables easy rollbacks to previous versions</li>
+    <li>Auto-restarts on server reboot</li>
+</ul>
+
+<h3>Step 1: Build &amp; Push (Development Machine)</h3>
+<p>On your development machine, build and push the Docker image:</p>
+<pre><code>cd backend
+
+# Build and push with a version tag
+export DOCKER_USERNAME=usaiinc
+./scripts/build-and-push.sh v1.0.0</code></pre>
+
+<p>The script will:</p>
+<ul>
+    <li>Build the Docker image for linux/amd64</li>
+    <li>Tag it with your version and "latest"</li>
+    <li>Push to Docker Hub</li>
+</ul>
+
+<div class="note">
+    <strong>Docker Hub Account:</strong> The project uses Docker Hub username <code>usaiinc</code> (created via GitHub authentication). Run <code>docker login</code> to authenticate before pushing.
+</div>
+
+<h3>Step 2: Deploy (Production Server)</h3>
+<p>Use the deploy script to copy files to your server:</p>
+<pre><code>cd backend
+
+# Deploy to altair (default)
+./scripts/deploy-to-server.sh
+
+# Or specify a different SSH host
+./scripts/deploy-to-server.sh myserver</code></pre>
+
+<p>The script copies <code>docker-compose.prod.yml</code>, <code>.env.prod.example</code>, and the <code>assets/</code> folder to <code>~/morning-drive</code> on the target server.</p>
+
+<div class="note">
+    <strong>SSH Config:</strong> The default target is <code>altair</code>. Set up your SSH config in <code>~/.ssh/config</code> for passwordless access.
+</div>
+
+<p>After running the script, SSH to your server and configure the environment:</p>
+<pre><code># SSH to your server
+ssh altair
+cd ~/morning-drive
+
+# Edit .env with your API keys
+nano .env</code></pre>
+
+<h4>Required .env Configuration</h4>
+<pre><code># API Keys
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+ELEVENLABS_API_KEY=xxxxx
+
+# Admin password - CHANGE THIS!
+ADMIN_PASSWORD=your-secure-password</code></pre>
+
+<h3>Step 3: Start Services</h3>
+<pre><code># Pull and start (will auto-restart on boot)
+docker compose -f docker-compose.prod.yml up -d
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Check status
+docker compose -f docker-compose.prod.yml ps</code></pre>
+
+<div class="note">
+    <strong>Auto-restart:</strong> The production compose file uses <code>restart: always</code>, so services automatically start when the server boots.
+</div>
+
+<h3>Updating to a New Version</h3>
+<pre><code># On development machine: build and push new version
+./scripts/build-and-push.sh v1.1.0
+
+# On production server: pull and restart
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d</code></pre>
+
+<hr style="margin: 40px 0;">
+
+<details>
+<summary><strong>Alternative: Build on Production Server</strong></summary>
+<p>If you prefer to build directly on the production server instead of using Docker Hub:</p>
+<pre><code>cd backend
+cp .env.example .env
+nano .env  # Add your API keys
+docker compose -f docker-compose.yml up -d --build</code></pre>
+<p><strong>Note:</strong> For production, explicitly specify <code>-f docker-compose.yml</code> to skip the development override.</p>
+</details>
+
+<hr style="margin: 40px 0;">
+
+<h2>Services Overview</h2>
+<table>
+    <thead>
+        <tr><th>Service</th><th>Port</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>morning-drive</td><td>5000</td><td>Main FastAPI application</td></tr>
+        <tr><td>minio</td><td>9000, 9001</td><td>S3-compatible storage for music</td></tr>
+        <tr><td>scheduler</td><td>-</td><td>Optional background job scheduler</td></tr>
+    </tbody>
+</table>
+
+<h2>Environment Variables</h2>
+<table>
+    <thead>
+        <tr><th>Variable</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Yes</td><td>Claude API key for content generation</td></tr>
+        <tr><td><code>ELEVENLABS_API_KEY</code></td><td>Yes</td><td>ElevenLabs API key for TTS</td></tr>
+        <tr><td><code>ADMIN_PASSWORD</code></td><td>Yes</td><td>Password for admin panel access</td></tr>
+        <tr><td><code>IMAGE_TAG</code></td><td>No</td><td>Docker image tag (default: latest)</td></tr>
+        <tr><td><code>MINIO_ACCESS_KEY</code></td><td>No</td><td>MinIO access key (default: minioadmin)</td></tr>
+        <tr><td><code>MINIO_SECRET_KEY</code></td><td>No</td><td>MinIO secret key (default: minioadmin)</td></tr>
+        <tr><td><code>ELEVENLABS_CUSTOM_VOICE_IDS</code></td><td>No</td><td>Comma-separated custom voice IDs</td></tr>
+    </tbody>
+</table>
+
+<h2>Port Configuration</h2>
+<p>The production setup exposes the API on <strong>port 5000</strong> (mapped to internal port 8000). This is configured for use with Cloudflare Tunnels.</p>
+
+<h2>Running the Scheduler</h2>
+<p>The scheduler service handles automatic briefing generation at scheduled times:</p>
+<pre><code># Start with scheduler enabled
+docker-compose --profile with-scheduler up -d</code></pre>
+
+<h2>Production Considerations</h2>
+
+<div class="warning">
+    <strong>Security:</strong> Always change the default admin password and MinIO credentials in production.
+</div>
+
+<h3>Reverse Proxy Setup (nginx)</h3>
+<pre><code>server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}</code></pre>
+
+<h3>SSL/TLS</h3>
+<p>Use Let's Encrypt with Certbot for free SSL certificates:</p>
+<pre><code>sudo certbot --nginx -d your-domain.com</code></pre>
+
+<h2>Persistent Storage</h2>
+<p>The Docker setup uses named volumes for data persistence:</p>
+<ul>
+    <li><code>morning-drive-data</code> - SQLite database and generated audio files</li>
+    <li><code>morning-drive-minio-data</code> - Uploaded music files</li>
+</ul>
+<p>Data persists across container restarts and updates. <strong>Deploying new compose files will NOT overwrite your data.</strong> Volumes are only deleted if you explicitly run <code>docker compose down -v</code>.</p>
+
+<h2>Syncing Music Library</h2>
+<p>To sync music pieces from your local development environment to production:</p>
+<pre><code>cd backend
+./scripts/sync-music-to-server.sh</code></pre>
+<p>This script exports music files from local MinIO and database records, then imports them into production. It adds/updates files without deleting existing production data.</p>
+
+<h2>Health Checks</h2>
+<p>Monitor your deployment with the health endpoint:</p>
+<pre><code>curl http://localhost:8000/health
+# {"status": "healthy", "service": "morning-drive"}</code></pre>
+<p>Or use the <a href="/admin/health">Admin Health Dashboard</a> for a detailed view of all services.</p>
+
+<h2>Managing the Deployment</h2>
+<pre><code># View running services
+docker compose -f docker-compose.prod.yml ps
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Restart services
+docker compose -f docker-compose.prod.yml restart
+
+# Stop all services
+docker compose -f docker-compose.prod.yml down
+
+# Stop and remove volumes (WARNING: deletes all data)
+docker compose -f docker-compose.prod.yml down -v</code></pre>
+
+<h2>Troubleshooting</h2>
+<table>
+    <thead>
+        <tr><th>Issue</th><th>Solution</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Container won't start</td><td>Check logs: <code>docker compose logs morning-drive</code></td></tr>
+        <tr><td>Can't pull image</td><td>Verify DOCKER_USERNAME in .env matches your Docker Hub account</td></tr>
+        <tr><td>MinIO connection failed</td><td>Ensure MinIO container is healthy: <code>docker compose ps</code></td></tr>
+        <tr><td>API keys not working</td><td>Check .env file has no quotes around values</td></tr>
+    </tbody>
+</table>
+{% endblock %}

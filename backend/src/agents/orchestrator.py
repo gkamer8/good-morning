@@ -29,12 +29,91 @@ from src.tools.music_tools import (
 )
 
 
+# Writing style definitions - affects the tone and style of the generated script
+WRITING_STYLES = {
+    "good_morning_america": {
+        "name": "Good Morning, America",
+        "prompt": """Write in an upbeat, energetic morning show style. Be warm, enthusiastic, and approachable.
+Use exclamations where natural, maintain a positive outlook, and make listeners feel ready to tackle their day.
+Keep the energy high but genuine - this is a friendly wake-up call to start the day right.""",
+    },
+    "firing_line": {
+        "name": "Firing Line",
+        "prompt": """Write with the wit, humor, and intellectual air of William F. Buckley, Jr.
+Use sophisticated vocabulary, employ clever turns of phrase, and maintain an erudite but accessible tone.
+Include dry wit and occasional sardonic observations. Engage with ideas thoughtfully and incisively.
+Your commentary should be sharp, articulate, and demonstrate genuine intellectual curiosity.""",
+    },
+    "ernest_hemingway": {
+        "name": "Ernest Hemingway",
+        "prompt": """Write in the literary style of Ernest Hemingway. Use short, declarative sentences.
+Be direct and spare with words. Avoid adjectives when possible. Let the facts speak.
+No flowery language. Simple. Clear. True. Say what happened. Move on.
+The truth needs no embellishment.""",
+    },
+}
+
+DEFAULT_WRITING_STYLE = "good_morning_america"
+
+
+async def generate_briefing_title(script: BriefingScript) -> str:
+    """Generate a brief, descriptive title for the briefing based on its content."""
+    settings = get_settings()
+    today = datetime.now()
+    date_str = today.strftime("%-m/%-d/%y")  # m/d/yy format
+
+    # Extract text from all segments to summarize
+    all_text = []
+    for segment in script.segments:
+        for item in segment.items:
+            all_text.append(item.text[:200])  # First 200 chars of each item
+
+    content_summary = " ".join(all_text)[:1500]  # Limit total content
+
+    try:
+        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        response = await client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=50,
+            messages=[{
+                "role": "user",
+                "content": f"""Based on this morning briefing content, generate a very brief title (2-5 words, comma-separated) that captures the SPECIFIC topics discussed.
+
+IMPORTANT RULES:
+- Do NOT use generic section names like "Weather", "Sports", "News", "Markets"
+- Instead use SPECIFIC topics: team names, company names, events, places
+- Separate topics with commas
+- Just output the words, no quotes or extra punctuation
+
+Content: {content_summary}
+
+Examples of good titles:
+- Tesla Earnings, Lakers Win
+- NYC Snow, Fed Rates
+- Apple Event, Giants Trade
+- Boeing Strike, Heat Wave
+
+Examples of BAD titles (too generic):
+- Weather Update, Sports News
+- Market Recap, News Roundup"""
+            }]
+        )
+        topic_words = response.content[0].text.strip()
+        # Clean up any extra punctuation or quotes
+        topic_words = topic_words.strip('"\'.,')
+        return f"{date_str} - {topic_words}"
+    except Exception as e:
+        print(f"Failed to generate title: {e}")
+        return f"{date_str} - Morning Briefing"
+
+
 SCRIPT_WRITER_SYSTEM_PROMPT_TEMPLATE = """You are a professional radio scriptwriter for "Morning Drive," a personalized morning briefing show. Your job is to transform raw news, sports, weather, and fun content into an engaging, conversational radio script.
 
+WRITING STYLE:
+{writing_style_instructions}
+
 STYLE GUIDELINES:
-- Write in a warm, professional radio host voice
 - Use natural transitions between segments
-- Keep language accessible but intelligent
 - Include brief pauses where appropriate (indicated by "...")
 - Vary sentence length for natural rhythm
 - When reading quotes, indicate the voice profile needed based on the speaker's likely demographics
@@ -62,7 +141,7 @@ Return a JSON object with this structure:
 {{
   "segments": [
     {{
-      "type": "intro|news|sports|weather|fun|outro",
+      "type": "intro|news|sports|weather|fun|music|outro",
       "items": [
         {{
           "voice": "host",
@@ -194,6 +273,7 @@ async def generate_script_with_claude(
     target_duration_minutes: int,
     segment_order: list[str] = None,
     include_music: bool = False,
+    writing_style: str = None,
 ) -> BriefingScript:
     """Use Claude to generate the radio script."""
     settings = get_settings()
@@ -214,15 +294,22 @@ async def generate_script_with_claude(
     # Add music instruction if enabled
     if include_music:
         music_instruction = """
-- MUSIC: After the sign-off, include a "music" segment that introduces the music piece.
-  The introduction should be warm and engaging, helping listeners appreciate what they're about to hear."""
+- MUSIC: After the sign-off, include a segment with type "music" that introduces the music piece.
+  The introduction should be warm and engaging, helping listeners appreciate what they're about to hear.
+  IMPORTANT: Use type "music" (not "news" or any other type) for this segment."""
     else:
         music_instruction = ""
 
-    # Build the system prompt with the dynamic segment order
+    # Get writing style instructions
+    style_key = writing_style or DEFAULT_WRITING_STYLE
+    style_config = WRITING_STYLES.get(style_key, WRITING_STYLES[DEFAULT_WRITING_STYLE])
+    writing_style_instructions = style_config["prompt"]
+
+    # Build the system prompt with the dynamic segment order and writing style
     system_prompt = SCRIPT_WRITER_SYSTEM_PROMPT_TEMPLATE.format(
         segment_flow=segment_flow,
         classical_music_instruction=music_instruction,
+        writing_style_instructions=writing_style_instructions,
     )
 
     # Build content sections in the user-specified order
@@ -533,10 +620,11 @@ async def generate_briefing_task(
         # Phase 2: Generate script with Claude
         await update_briefing_status(briefing_id, "writing_script")
         segment_order = user_settings.segment_order or ["news", "sports", "weather", "fun"]
+        writing_style = getattr(user_settings, 'writing_style', None) or DEFAULT_WRITING_STYLE
 
         try:
             script = await generate_script_with_claude(
-                content, duration, segment_order, include_music_enabled
+                content, duration, segment_order, include_music_enabled, writing_style
             )
         except Exception as e:
             decision = await request_user_confirmation(
@@ -551,7 +639,7 @@ async def generate_briefing_task(
                 return
             elif decision == "retry":
                 script = await generate_script_with_claude(
-                    content, duration, segment_order, include_music_enabled
+                    content, duration, segment_order, include_music_enabled, writing_style
                 )
 
         # Phase 3: Generate audio
@@ -673,6 +761,9 @@ async def generate_briefing_task(
                 music_audio_path=music_audio_path,
             )
 
+        # Generate a descriptive title based on the script content
+        briefing_title = await generate_briefing_title(script)
+
         # Update briefing record with results
         async with async_session() as session:
             result = await session.execute(
@@ -688,6 +779,7 @@ async def generate_briefing_task(
                 else:
                     briefing.status = "completed"
 
+                briefing.title = briefing_title
                 briefing.duration_seconds = duration_seconds
                 briefing.audio_filename = final_audio_path.name
                 briefing.script = script.model_dump()

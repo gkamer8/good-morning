@@ -103,24 +103,31 @@ interface AppConfigState {
   serverUrl: string;
   isConnected: boolean;
   lastSyncTime: string | null;
+  _hasHydrated: boolean;
   setServerUrl: (url: string) => void;
   setConnected: (connected: boolean) => void;
   setLastSyncTime: (time: string | null) => void;
+  setHasHydrated: (hasHydrated: boolean) => void;
 }
 
 export const useAppConfigStore = create<AppConfigState>()(
   persist(
     (set) => ({
-      serverUrl: 'http://10.0.0.173:8000',
+      serverUrl: 'https://morning.g0rdon.com',
       isConnected: false,
       lastSyncTime: null,
+      _hasHydrated: false,
       setServerUrl: (serverUrl) => set({ serverUrl }),
       setConnected: (isConnected) => set({ isConnected }),
       setLastSyncTime: (lastSyncTime) => set({ lastSyncTime }),
+      setHasHydrated: (_hasHydrated) => set({ _hasHydrated }),
     }),
     {
       name: 'app-config-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

@@ -63,6 +63,103 @@ class TestSettingsEndpoints:
         assert "include_music" in data
         assert isinstance(data["include_music"], bool)
 
+    def test_settings_has_writing_style(self, client):
+        """Test settings include writing_style field."""
+        response = client.get("/api/settings")
+        assert response.status_code == 200
+        data = response.json()
+        assert "writing_style" in data
+        assert isinstance(data["writing_style"], str)
+
+    def test_settings_writing_style_default(self, client):
+        """Test writing_style has correct default value on fresh settings."""
+        # Reset to default first to ensure clean state
+        client.put("/api/settings", json={"writing_style": "good_morning_america"})
+        response = client.get("/api/settings")
+        assert response.status_code == 200
+        data = response.json()
+        # Default should be good_morning_america
+        assert data["writing_style"] == "good_morning_america"
+
+    def test_update_writing_style(self, client):
+        """Test updating writing_style via PUT."""
+        # Update to firing_line
+        response = client.put("/api/settings", json={"writing_style": "firing_line"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["writing_style"] == "firing_line"
+
+        # Verify it persisted
+        get_response = client.get("/api/settings")
+        assert get_response.status_code == 200
+        assert get_response.json()["writing_style"] == "firing_line"
+
+        # Update to ernest_hemingway
+        response = client.put("/api/settings", json={"writing_style": "ernest_hemingway"})
+        assert response.status_code == 200
+        assert response.json()["writing_style"] == "ernest_hemingway"
+
+        # Reset to default
+        response = client.put("/api/settings", json={"writing_style": "good_morning_america"})
+        assert response.status_code == 200
+        assert response.json()["writing_style"] == "good_morning_america"
+
+    def test_writing_style_accepts_all_valid_values(self, client):
+        """Test all valid writing_style values are accepted."""
+        valid_styles = ["good_morning_america", "firing_line", "ernest_hemingway"]
+        for style in valid_styles:
+            response = client.put("/api/settings", json={"writing_style": style})
+            assert response.status_code == 200, f"Failed to set writing_style to {style}"
+            assert response.json()["writing_style"] == style
+
+        # Reset to default
+        client.put("/api/settings", json={"writing_style": "good_morning_america"})
+
+
+class TestVoiceSelection:
+    """Tests for voice selection in settings."""
+
+    def test_update_voice_id_with_stock_voice(self, client):
+        """Test updating voice_id with a stock voice ID works."""
+        # Rachel is a valid stock voice
+        response = client.put("/api/settings", json={"voice_id": "21m00Tcm4TlvDq8ikWAM"})
+        assert response.status_code == 200
+        assert response.json()["voice_id"] == "21m00Tcm4TlvDq8ikWAM"
+
+    def test_update_voice_id_with_custom_voice(self, client):
+        """Test updating voice_id with a custom voice ID works.
+
+        Custom voices are configured in settings.elevenlabs_custom_voice_ids.
+        They should be accepted, not silently replaced with the default.
+        """
+        # "Firing Line" custom voice from config.py
+        custom_voice_id = "BG48ZiEunXWfskS4bWOW"
+        response = client.put("/api/settings", json={"voice_id": custom_voice_id})
+        assert response.status_code == 200
+        # Should keep the custom voice, NOT replace with default
+        assert response.json()["voice_id"] == custom_voice_id, \
+            "Custom voice was silently replaced with default - validation should accept custom voices"
+
+    def test_update_voice_id_invalid_falls_back_to_default(self, client):
+        """Test that truly invalid voice IDs fall back to default."""
+        invalid_voice_id = "invalid_voice_id_12345"
+        response = client.put("/api/settings", json={"voice_id": invalid_voice_id})
+        assert response.status_code == 200
+        # Invalid voice should fall back to default (Rachel)
+        assert response.json()["voice_id"] == "21m00Tcm4TlvDq8ikWAM"
+
+    def test_voice_id_persists_after_update(self, client):
+        """Test that voice_id selection persists correctly."""
+        # Set to Adam
+        client.put("/api/settings", json={"voice_id": "pNInz6obpgDQGcFmaJgB"})
+
+        # Verify it persisted
+        response = client.get("/api/settings")
+        assert response.json()["voice_id"] == "pNInz6obpgDQGcFmaJgB"
+
+        # Reset to Rachel
+        client.put("/api/settings", json={"voice_id": "21m00Tcm4TlvDq8ikWAM"})
+
 
 class TestBriefingEndpoints:
     """Tests for briefing endpoints."""
@@ -305,6 +402,22 @@ class TestConcurrentRequests:
 
         # All 4 requests should complete in under 4 seconds total
         assert total_elapsed < 4.0, f"Total time {total_elapsed:.2f}s too slow"
+
+
+class TestMusicEndpoints:
+    """Tests for music streaming endpoints."""
+
+    def test_stream_nonexistent_piece_returns_404(self, client):
+        """Test streaming a non-existent music piece returns 404."""
+        response = client.get("/api/music/99999/stream")
+        assert response.status_code == 404
+
+    def test_stream_endpoint_exists(self, client):
+        """Test music stream endpoint exists (valid route)."""
+        # Even for ID 0, should get 404 (not found) not 405 (method not allowed)
+        response = client.get("/api/music/0/stream")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
 
 class TestAPIDocumentation:

@@ -102,7 +102,7 @@ VOICE_PROFILES = {
 }
 
 
-# Edge TTS voice profiles (Microsoft Edge online TTS - free)
+# Edge TTS voice profiles (Microsoft Edge online TTS)
 # Full list: https://github.com/rany2/edge-tts
 EDGE_VOICE_PROFILES = {
     # Host voices - natural, professional American voices
@@ -198,7 +198,7 @@ async def generate_audio_edge_tts(
     output_path: Path,
     voice_speed: float = 1.0,
 ) -> float:
-    """Generate audio using Edge TTS (free Microsoft TTS).
+    """Generate audio using Edge TTS (Microsoft TTS).
 
     Args:
         text: Text to convert to speech

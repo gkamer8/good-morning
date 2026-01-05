@@ -24,11 +24,12 @@ data/
 # macOS
 .DS_Store
 
-# iOS
-ios/Pods/
-ios/build/
+# iOS (MorningDriveApp)
+MorningDriveApp/ios/Pods/
+MorningDriveApp/ios/build/
+MorningDriveApp/build/
 *.xcworkspace
-!ios/*.xcworkspace/
+!MorningDriveApp/ios/*.xcworkspace/
 
 # React Native
 *.jsbundle

@@ -1,0 +1,218 @@
+{% extends "pages/docs/layout.html" %}
+
+{% block title %}API Reference{% endblock %}
+
+{% block doc_content %}
+<p>Complete reference for the Morning Drive REST API. All endpoints use JSON for request/response bodies.</p>
+
+<div class="note">
+    <strong>Interactive API Docs:</strong> Visit <a href="/api/docs">/api/docs</a> for auto-generated Swagger documentation with "Try it out" functionality.
+</div>
+
+<h3>Base URL</h3>
+<pre><code># Production
+https://morning.g0rdon.com/api
+
+# Local development
+http://localhost:8000/api</code></pre>
+
+<h3>Briefings</h3>
+
+<h4>Generate a New Briefing</h4>
+<pre><code>POST /api/briefings/generate
+
+# Request body (optional - uses saved settings if omitted)
+{
+  "duration_minutes": 10
+}
+
+# Response
+{
+  "id": 1,
+  "status": "pending",
+  "created_at": "2024-01-15T08:00:00Z"
+}</code></pre>
+
+<h4>List All Briefings</h4>
+<pre><code>GET /api/briefings?limit=10&amp;offset=0
+
+# Response
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Morning Briefing",
+      "status": "completed",
+      "duration_seconds": 600,
+      "created_at": "2024-01-15T08:00:00Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+
+<h4>Get Briefing Details</h4>
+<pre><code>GET /api/briefings/{id}
+
+# Response
+{
+  "id": 1,
+  "title": "Morning Briefing",
+  "status": "completed",
+  "duration_seconds": 600,
+  "audio_filename": "briefing_1.mp3",
+  "segments_metadata": {...},
+  "created_at": "2024-01-15T08:00:00Z"
+}</code></pre>
+
+<h4>Get Generation Status</h4>
+<pre><code>GET /api/briefings/{id}/status
+
+# Response
+{
+  "status": "generating_audio",
+  "progress": 75,
+  "current_step": "Generating segment 3 of 4"
+}</code></pre>
+
+<h4>Delete a Briefing</h4>
+<pre><code>DELETE /api/briefings/{id}
+
+# Response: 204 No Content</code></pre>
+
+<h3>User Settings</h3>
+
+<h4>Get Current Settings</h4>
+<pre><code>GET /api/settings
+
+# Response
+{
+  "news_topics": ["technology", "business"],
+  "news_sources": ["BBC", "Reuters"],
+  "sports_teams": [],
+  "sports_leagues": ["NFL"],
+  "weather_locations": [
+    {"name": "New York", "lat": 40.7128, "lon": -74.006}
+  ],
+  "fun_segments": ["this_day_in_history", "quote_of_the_day"],
+  "duration_minutes": 10,
+  "voice_id": "21m00Tcm4TlvDq8ikWAM"
+}</code></pre>
+
+<h4>Update Settings</h4>
+<pre><code>PUT /api/settings
+Content-Type: application/json
+
+{
+  "news_topics": ["technology", "science"],
+  "duration_minutes": 15
+}
+
+# Response: Updated settings object</code></pre>
+
+<h3>Schedule</h3>
+
+<h4>Get Schedule</h4>
+<pre><code>GET /api/schedule
+
+# Response
+{
+  "enabled": true,
+  "days_of_week": [1, 2, 3, 4, 5],
+  "time_hour": 6,
+  "time_minute": 30,
+  "timezone": "America/New_York",
+  "next_run": "2024-01-16T06:30:00-05:00"
+}</code></pre>
+
+<h4>Update Schedule</h4>
+<pre><code>PUT /api/schedule
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "days_of_week": [1, 2, 3, 4, 5],
+  "time_hour": 7,
+  "time_minute": 0,
+  "timezone": "America/New_York"
+}</code></pre>
+
+<h3>Voices</h3>
+
+<h4>List Available Voices</h4>
+<pre><code>GET /api/voices
+
+# Response
+{
+  "voices": [
+    {
+      "voice_id": "21m00Tcm4TlvDq8ikWAM",
+      "name": "Rachel",
+      "category": "premade",
+      "preview_url": "/api/voices/21m00Tcm4TlvDq8ikWAM/preview"
+    }
+  ]
+}</code></pre>
+
+<h3>Music</h3>
+
+<h4>List Music Library</h4>
+<pre><code>GET /api/music
+
+# Response
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Moonlight Sonata",
+      "composer": "Ludwig van Beethoven",
+      "duration_seconds": 360,
+      "is_active": true
+    }
+  ]
+}</code></pre>
+
+<h4>Stream Music File</h4>
+<pre><code>GET /api/music/{id}/stream
+
+# Returns audio/mpeg stream</code></pre>
+
+<h3>Health Check</h3>
+<pre><code>GET /health
+
+# Response
+{
+  "status": "healthy",
+  "service": "morning-drive"
+}</code></pre>
+
+<h3>Briefing Status Values</h3>
+<table>
+    <thead>
+        <tr><th>Status</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>pending</code></td><td>Briefing queued, not yet started</td></tr>
+        <tr><td><code>gathering_content</code></td><td>Fetching news, sports, weather data</td></tr>
+        <tr><td><code>writing_script</code></td><td>Claude is generating the script</td></tr>
+        <tr><td><code>generating_audio</code></td><td>Converting script to speech</td></tr>
+        <tr><td><code>completed</code></td><td>Ready to play</td></tr>
+        <tr><td><code>failed</code></td><td>Generation failed (check errors)</td></tr>
+    </tbody>
+</table>
+
+<h3>Error Responses</h3>
+<pre><code># 400 Bad Request
+{
+  "detail": "Invalid duration: must be between 5 and 30 minutes"
+}
+
+# 404 Not Found
+{
+  "detail": "Briefing not found"
+}
+
+# 500 Internal Server Error
+{
+  "detail": "Failed to generate briefing"
+}</code></pre>
+{% endblock %}

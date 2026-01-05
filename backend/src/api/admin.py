@@ -8,13 +8,15 @@ from datetime import datetime
 from typing import Optional
 
 import anthropic
+import feedparser
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydub import AudioSegment
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.template_config import templates
 from src.config import get_settings
 from src.storage.database import MusicPiece, get_session
 from src.storage.minio_storage import get_minio_storage
@@ -210,34 +212,33 @@ Include one or two interesting facts about the piece or composer. Make it conver
         return ""
 
 
-def get_server_ip() -> str:
-    """Get the server's IP address that clients can connect to.
+def get_server_url() -> str | None:
+    """Get the server's URL that clients can connect to.
 
-    When running in Docker, this tries to get the host machine's IP
-    rather than the container's internal IP.
+    Returns None in production (when accessed via public URL).
+    Returns the local LAN IP for development.
     """
     import os
 
-    # First check for explicit override via environment variable
+    # Check for explicit IP override
     if os.environ.get("SERVER_IP"):
-        return os.environ["SERVER_IP"]
+        return f"http://{os.environ['SERVER_IP']}:{settings.port}"
 
-    # Try to resolve host.docker.internal (works on Docker Desktop for Mac/Windows)
-    try:
-        ip = socket.gethostbyname("host.docker.internal")
-        return ip
-    except socket.gaierror:
-        pass
-
-    # Fall back to detecting via socket connection
+    # Detect LAN IP via socket connection to external address
+    # This gets the IP of the interface used to reach the internet
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
-        return ip
+
+        # Skip Docker internal IPs (192.168.65.x, 172.17.x.x, etc.)
+        if ip.startswith("192.168.65.") or ip.startswith("172.17.") or ip.startswith("172.18."):
+            return None  # Running in Docker - can't auto-detect host IP
+
+        return f"http://{ip}:{settings.port}"
     except Exception:
-        return "Unable to determine"
+        return None
 
 router = APIRouter()
 settings = get_settings()
@@ -272,7 +273,7 @@ def is_authenticated(request: Request) -> bool:
 # === Admin Pages ===
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/")
 async def admin_index(request: Request):
     """Admin index - redirect to login or music page."""
     if is_authenticated(request):
@@ -280,107 +281,14 @@ async def admin_index(request: Request):
     return RedirectResponse(url="/admin/login", status_code=302)
 
 
-@router.get("/login", response_class=HTMLResponse)
+@router.get("/login")
 async def admin_login_page(request: Request, error: str = None):
     """Admin login page."""
-    error_html = ""
-    if error:
-        error_html = f'<div class="error">{error}</div>'
-
-    return HTMLResponse(content=f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - Morning Drive</title>
-    <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }}
-        .login-box {{
-            background: white;
-            padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            width: 100%;
-            max-width: 400px;
-        }}
-        h1 {{
-            text-align: center;
-            margin-bottom: 8px;
-            color: #333;
-        }}
-        .subtitle {{
-            text-align: center;
-            color: #666;
-            margin-bottom: 32px;
-        }}
-        .error {{
-            background: #fee;
-            color: #c00;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
-        }}
-        label {{
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #333;
-        }}
-        input[type="password"] {{
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 16px;
-            margin-bottom: 20px;
-            transition: border-color 0.2s;
-        }}
-        input[type="password"]:focus {{
-            outline: none;
-            border-color: #667eea;
-        }}
-        button {{
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }}
-        button:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }}
-    </style>
-</head>
-<body>
-    <div class="login-box">
-        <h1>Morning Drive</h1>
-        <p class="subtitle">Admin Panel</p>
-        {error_html}
-        <form method="POST" action="/admin/login">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required autofocus>
-            <button type="submit">Sign In</button>
-        </form>
-    </div>
-</body>
-</html>
-""")
+    return templates.TemplateResponse(
+        request,
+        "admin/login.html",
+        {"error": error, "is_authenticated": False},
+    )
 
 
 @router.post("/login")
@@ -412,7 +320,7 @@ async def admin_logout(request: Request):
     return response
 
 
-@router.get("/music", response_class=HTMLResponse)
+@router.get("/music")
 async def admin_music_page(
     request: Request,
     session: AsyncSession = Depends(get_session),
@@ -429,250 +337,21 @@ async def admin_music_page(
     )
     pieces = result.scalars().all()
 
-    # Build the pieces table rows
-    pieces_html = ""
-    for p in pieces:
-        status_badge = '<span class="badge active">Active</span>' if p.is_active else '<span class="badge inactive">Inactive</span>'
-        size_mb = f"{p.file_size_bytes / 1024 / 1024:.1f} MB" if p.file_size_bytes else "Unknown"
-        duration_min = f"{p.duration_seconds / 60:.1f} min"
-        pieces_html += f"""
-        <tr>
-            <td><strong>{p.title}</strong><br><span class="composer">{p.composer}</span></td>
-            <td>{duration_min}</td>
-            <td>{size_mb}</td>
-            <td>{status_badge}</td>
-            <td>
-                <form method="POST" action="/admin/music/{p.id}/delete" style="display:inline;">
-                    <button type="submit" class="btn-delete" onclick="return confirm('Delete {p.title}?')">Delete</button>
-                </form>
-            </td>
-        </tr>
-        """
+    # Get server URL for app connection
+    server_url = get_server_url()
 
-    if not pieces:
-        pieces_html = '<tr><td colspan="5" class="empty">No music pieces yet. Upload one below!</td></tr>'
-
-    # Messages
-    messages_html = ""
-    if success:
-        messages_html += f'<div class="message success">{success}</div>'
-    if error:
-        messages_html += f'<div class="message error">{error}</div>'
-
-    # Get server IP for app connection
-    server_ip = get_server_ip()
-    server_url = f"http://{server_ip}:{settings.port}"
-
-    return HTMLResponse(content=f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Music Management - Morning Drive Admin</title>
-    <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f7fa;
-            min-height: 100vh;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .header h1 {{ font-size: 1.5rem; }}
-        .header a {{
-            color: white;
-            text-decoration: none;
-            opacity: 0.9;
-        }}
-        .header a:hover {{ opacity: 1; }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }}
-        .card {{
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-            overflow: hidden;
-        }}
-        .card-header {{
-            padding: 20px 24px;
-            border-bottom: 1px solid #eee;
-            font-weight: 600;
-            font-size: 1.1rem;
-        }}
-        .card-body {{ padding: 24px; }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-        }}
-        th, td {{
-            padding: 14px 16px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }}
-        th {{
-            background: #f8f9fa;
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #666;
-        }}
-        .composer {{ color: #666; font-size: 0.9rem; }}
-        .badge {{
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 500;
-        }}
-        .badge.active {{ background: #d4edda; color: #155724; }}
-        .badge.inactive {{ background: #f8d7da; color: #721c24; }}
-        .btn-delete {{
-            padding: 6px 12px;
-            background: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.85rem;
-        }}
-        .btn-delete:hover {{ background: #c82333; }}
-        .empty {{
-            text-align: center;
-            color: #666;
-            padding: 40px !important;
-        }}
-        .form-group {{
-            margin-bottom: 20px;
-        }}
-        label {{
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #333;
-        }}
-        input[type="text"], input[type="number"], textarea {{
-            width: 100%;
-            padding: 10px 14px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-        }}
-        input[type="file"] {{
-            padding: 10px 0;
-        }}
-        textarea {{ resize: vertical; min-height: 80px; }}
-        .form-row {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }}
-        .btn-primary {{
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-        }}
-        .btn-primary:hover {{
-            opacity: 0.9;
-        }}
-        .message {{
-            padding: 14px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }}
-        .message.success {{ background: #d4edda; color: #155724; }}
-        .message.error {{ background: #f8d7da; color: #721c24; }}
-        .help {{ font-size: 0.85rem; color: #666; margin-top: 6px; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <a href="/" style="text-decoration:none;"><h1>Morning Drive Admin</h1></a>
-        <nav style="display:flex;gap:20px;align-items:center;">
-            <a href="/admin/music" style="background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 4px;">Music</a>
-            <a href="/admin/health" style="padding: 6px 12px; border-radius: 4px;">Health</a>
-            <a href="/" style="padding: 6px 12px; border-radius: 4px;">Home</a>
-            <a href="/docs/getting-started" style="padding: 6px 12px; border-radius: 4px;">Docs</a>
-            <a href="/admin/logout" style="padding: 6px 12px; border-radius: 4px;">Sign Out</a>
-        </nav>
-    </div>
-    <div class="container">
-        {messages_html}
-
-        <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-            <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-                <div>
-                    <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">App Server URL</div>
-                    <div style="font-size: 1.4rem; font-weight: 600; font-family: monospace;">{server_url}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.85rem; opacity: 0.9;">Enter this URL in the Morning Drive app settings to connect</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">Music Library</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Title / Composer</th>
-                        <th>Duration</th>
-                        <th>Size</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {pieces_html}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="card">
-            <div class="card-header">Upload New Music</div>
-            <div class="card-body">
-                <form method="POST" action="/admin/music/upload" enctype="multipart/form-data">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="title">Title *</label>
-                            <input type="text" id="title" name="title" required placeholder="e.g., Moonlight Sonata">
-                        </div>
-                        <div class="form-group">
-                            <label for="composer">Composer *</label>
-                            <input type="text" id="composer" name="composer" required placeholder="e.g., Ludwig van Beethoven">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="file">Audio File (MP3) *</label>
-                        <input type="file" id="file" name="file" accept="audio/mpeg,audio/mp3" required>
-                        <p class="help" style="margin-top: 8px; color: #666;">
-                            Duration will be auto-detected from the audio file.<br>
-                            An introduction will be auto-generated by AI based on the title and composer.
-                        </p>
-                    </div>
-                    <button type="submit" class="btn-primary">Upload Music</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-""")
+    return templates.TemplateResponse(
+        request,
+        "admin/music.html",
+        {
+            "active_page": "admin-music",
+            "is_authenticated": True,
+            "pieces": pieces,
+            "server_url": server_url,
+            "success": success,
+            "error": error,
+        },
+    )
 
 
 @router.post("/music/upload")
@@ -787,7 +466,7 @@ async def admin_delete_music(
         )
 
 
-@router.get("/health", response_class=HTMLResponse)
+@router.get("/health")
 async def admin_health_page(request: Request):
     """Admin health check page - shows status of all external dependencies."""
     if not is_authenticated(request):
@@ -826,54 +505,23 @@ async def admin_health_page(request: Request):
     api_results = all_results[len(rss_checks):len(rss_checks) + len(api_checks)]
     internal_results = all_results[len(rss_checks) + len(api_checks):]
 
-    def render_status_badge(result):
-        """Render a status badge for a health check result."""
+    # Convert exceptions to error dicts for template
+    def normalize_result(result):
         if isinstance(result, Exception):
-            return '<span class="badge error">Exception</span>'
-        status = result.get("status", "unknown")
-        if status == "ok":
-            return '<span class="badge ok">OK</span>'
-        elif status == "configured":
-            return '<span class="badge configured">Configured</span>'
-        elif status == "not_configured":
-            return '<span class="badge warning">Not Configured</span>'
-        elif status == "timeout":
-            return '<span class="badge warning">Timeout</span>'
-        else:
-            return '<span class="badge error">Error</span>'
+            return {
+                "name": "Unknown",
+                "status": "error",
+                "response_time_ms": 0,
+                "error": str(result)[:100],
+            }
+        return result
 
-    def render_result_row(result):
-        """Render a table row for a health check result."""
-        if isinstance(result, Exception):
-            return f"""
-            <tr>
-                <td>Unknown</td>
-                <td><span class="badge error">Exception</span></td>
-                <td>-</td>
-                <td class="error-text">{str(result)[:100]}</td>
-            </tr>
-            """
-        name = result.get("name", "Unknown")
-        status_badge = render_status_badge(result)
-        response_time = result.get("response_time_ms", 0)
-        time_class = "fast" if response_time < 500 else ("slow" if response_time > 2000 else "")
-        error = result.get("error", "")
-        return f"""
-        <tr>
-            <td><strong>{name}</strong></td>
-            <td>{status_badge}</td>
-            <td class="{time_class}">{response_time}ms</td>
-            <td class="error-text">{error or '-'}</td>
-        </tr>
-        """
-
-    # Build HTML tables
-    rss_rows = "".join(render_result_row(r) for r in rss_results)
-    api_rows = "".join(render_result_row(r) for r in api_results)
-    internal_rows = "".join(render_result_row(r) for r in internal_results)
+    rss_results = [normalize_result(r) for r in rss_results]
+    api_results = [normalize_result(r) for r in api_results]
+    internal_results = [normalize_result(r) for r in internal_results]
 
     # Calculate overall status
-    all_statuses = [r.get("status") if not isinstance(r, Exception) else "error" for r in all_results]
+    all_statuses = [r.get("status", "error") for r in rss_results + api_results + internal_results]
     ok_count = sum(1 for s in all_statuses if s in ("ok", "configured"))
     warning_count = sum(1 for s in all_statuses if s in ("not_configured", "timeout"))
     error_count = sum(1 for s in all_statuses if s == "error")
@@ -889,236 +537,83 @@ async def admin_health_page(request: Request):
         overall_status = "ok"
         overall_text = "All systems operational"
 
-    return HTMLResponse(content=f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Health Check - Morning Drive Admin</title>
-    <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f7fa;
-            min-height: 100vh;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .header h1 {{ font-size: 1.5rem; }}
-        .header nav {{
-            display: flex;
-            gap: 20px;
-            align-items: center;
-        }}
-        .header a {{
-            color: white;
-            text-decoration: none;
-            opacity: 0.9;
-            padding: 6px 12px;
-            border-radius: 4px;
-            transition: background 0.2s;
-        }}
-        .header a:hover {{
-            opacity: 1;
-            background: rgba(255,255,255,0.15);
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }}
-        .status-banner {{
-            padding: 20px 24px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .status-banner.ok {{
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            color: white;
-        }}
-        .status-banner.warning {{
-            background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-            color: #333;
-        }}
-        .status-banner.error {{
-            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-            color: white;
-        }}
-        .status-banner h2 {{ font-size: 1.3rem; margin-bottom: 4px; }}
-        .status-banner .stats {{
-            display: flex;
-            gap: 20px;
-            font-size: 0.9rem;
-        }}
-        .card {{
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-            overflow: hidden;
-        }}
-        .card-header {{
-            padding: 20px 24px;
-            border-bottom: 1px solid #eee;
-            font-weight: 600;
-            font-size: 1.1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .card-header .count {{
-            font-weight: normal;
-            color: #666;
-            font-size: 0.9rem;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-        }}
-        th, td {{
-            padding: 14px 16px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }}
-        th {{
-            background: #f8f9fa;
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 500;
-        }}
-        .badge.ok {{ background: #d4edda; color: #155724; }}
-        .badge.configured {{ background: #cce5ff; color: #004085; }}
-        .badge.warning {{ background: #fff3cd; color: #856404; }}
-        .badge.error {{ background: #f8d7da; color: #721c24; }}
-        .error-text {{ color: #dc3545; font-size: 0.9rem; }}
-        .fast {{ color: #28a745; }}
-        .slow {{ color: #dc3545; }}
-        .refresh-btn {{
-            padding: 10px 20px;
-            background: white;
-            color: #667eea;
-            border: 2px solid currentColor;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-        }}
-        .refresh-btn:hover {{
-            background: #667eea;
-            color: white;
-        }}
-        .timestamp {{
-            text-align: center;
-            color: #666;
-            font-size: 0.85rem;
-            margin-top: 20px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <a href="/" style="text-decoration:none;"><h1>Morning Drive Admin</h1></a>
-        <nav>
-            <a href="/admin/music">Music</a>
-            <a href="/admin/health" style="background: rgba(255,255,255,0.15);">Health</a>
-            <a href="/">Home</a>
-            <a href="/docs/getting-started">Docs</a>
-            <a href="/admin/logout">Sign Out</a>
-        </nav>
-    </div>
-    <div class="container">
-        <div class="status-banner {overall_status}">
-            <div>
-                <h2>{overall_text}</h2>
-                <div class="stats">
-                    <span>{ok_count}/{total} services healthy</span>
-                </div>
-            </div>
-            <a href="/admin/health" class="refresh-btn">Refresh</a>
-        </div>
+    return templates.TemplateResponse(
+        request,
+        "admin/health.html",
+        {
+            "active_page": "admin-health",
+            "is_authenticated": True,
+            "rss_results": rss_results,
+            "api_results": api_results,
+            "internal_results": internal_results,
+            "overall_status": overall_status,
+            "overall_text": overall_text,
+            "ok_count": ok_count,
+            "total_count": total,
+            "last_checked": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        },
+    )
 
-        <div class="card">
-            <div class="card-header">
-                RSS News Feeds
-                <span class="count">{len(rss_results)} sources</span>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Response Time</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rss_rows}
-                </tbody>
-            </table>
-        </div>
 
-        <div class="card">
-            <div class="card-header">
-                External APIs
-                <span class="count">{len(api_results)} services</span>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Service</th>
-                        <th>Status</th>
-                        <th>Response Time</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {api_rows}
-                </tbody>
-            </table>
-        </div>
+@router.get("/rss-preview")
+async def get_rss_preview(request: Request, feed: str):
+    """Get preview of stories from an RSS feed."""
+    if not is_authenticated(request):
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
 
-        <div class="card">
-            <div class="card-header">
-                Internal Services
-                <span class="count">{len(internal_results)} services</span>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Service</th>
-                        <th>Status</th>
-                        <th>Response Time</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {internal_rows}
-                </tbody>
-            </table>
-        </div>
+    # Find the feed URL
+    feed_url = RSS_FEEDS_TO_CHECK.get(feed)
+    if not feed_url:
+        return JSONResponse({"error": f"Unknown feed: {feed}"}, status_code=404)
 
-        <p class="timestamp">Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
-</body>
-</html>
-""")
+    try:
+        # Fetch and parse the RSS feed
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(feed_url)
+            response.raise_for_status()
+
+        # Parse the feed
+        parsed = feedparser.parse(response.text)
+
+        if parsed.bozo and not parsed.entries:
+            return JSONResponse({"error": "Failed to parse RSS feed"}, status_code=500)
+
+        # Extract the first 5 stories
+        stories = []
+        for entry in parsed.entries[:5]:
+            # Get published date
+            published = ""
+            if hasattr(entry, "published"):
+                published = entry.published
+            elif hasattr(entry, "updated"):
+                published = entry.updated
+
+            # Get summary (truncate if too long)
+            summary = ""
+            if hasattr(entry, "summary"):
+                summary = entry.summary
+                # Strip HTML tags for cleaner display
+                import re
+                summary = re.sub(r'<[^>]+>', '', summary)
+                if len(summary) > 200:
+                    summary = summary[:200] + "..."
+
+            stories.append({
+                "title": entry.get("title", "No title"),
+                "link": entry.get("link", "#"),
+                "published": published,
+                "summary": summary,
+            })
+
+        return JSONResponse({
+            "feed": feed,
+            "url": feed_url,
+            "stories": stories,
+        })
+
+    except httpx.TimeoutException:
+        return JSONResponse({"error": "Request timed out"}, status_code=504)
+    except httpx.HTTPStatusError as e:
+        return JSONResponse({"error": f"HTTP error: {e.response.status_code}"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Morning Drive</h1>
+    <p>AI-powered personalized morning briefings with professional radio-style production</p>
+    <a href="/docs/getting-started" class="btn">Get Started</a>
+    <a href="/api/docs" class="btn">API Docs</a>
+</div>
+<div class="container">
+    <div class="features">
+        <div class="feature">
+            <h3>Personalized Content</h3>
+            <p>Get briefings tailored to your interests: news topics, sports teams, weather locations, and fun segments like "This Day in History."</p>
+        </div>
+        <div class="feature">
+            <h3>Professional Audio</h3>
+            <p>ElevenLabs text-to-speech with voice-matched quotes. Sounds like a real radio show with intro music and smooth transitions.</p>
+        </div>
+        <div class="feature">
+            <h3>CarPlay Support</h3>
+            <p>Listen to your morning briefings hands-free while driving with full CarPlay integration.</p>
+        </div>
+        <div class="feature">
+            <h3>Scheduled Generation</h3>
+            <p>Set your preferred time and days, and your briefing will be ready when you wake up.</p>
+        </div>
+        <div class="feature">
+            <h3>AI-Powered Scripts</h3>
+            <p>Claude generates natural, engaging scripts from multiple news sources, sports APIs, and weather data.</p>
+        </div>
+        <div class="feature">
+            <h3>Classical Music</h3>
+            <p>Each briefing includes a classical music piece with an introduction from the host.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Quick Start</div>
+        <div class="card-body">
+            <p>Get Morning Drive running in minutes:</p>
+            <pre><code>cd backend
+cp .env.example .env   # Add your API keys
+docker-compose up -d
+curl http://localhost:8000/health</code></pre>
+            <p>See the <a href="/docs/getting-started">Getting Started guide</a> for detailed setup instructions.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Documentation</div>
+        <div class="card-body">
+            <ul>
+                <li><a href="/docs/getting-started"><strong>Getting Started</strong></a> - Prerequisites, installation, and first briefing</li>
+                <li><a href="/docs/deployment"><strong>Deployment</strong></a> - Docker, production setup, and configuration</li>
+                <li><a href="/docs/development"><strong>Development</strong></a> - Local setup, testing, and code quality</li>
+                <li><a href="/docs/api-reference"><strong>API Reference</strong></a> - REST endpoints and usage examples</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Administration</div>
+        <div class="card-body">
+            <p>The <a href="/admin">Admin Panel</a> provides a web interface for managing your Morning Drive instance:</p>
+            <ul>
+                <li>Upload and manage classical music pieces</li>
+                <li>Monitor service health and API status</li>
+            </ul>
+            <p><em>Admin access requires a password (set via <code>ADMIN_PASSWORD</code> environment variable).</em></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

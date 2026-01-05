@@ -1,0 +1,78 @@
+{% extends "pages/docs/layout.html" %}
+
+{% block title %}Getting Started{% endblock %}
+
+{% block doc_content %}
+<p>This guide will help you set up Morning Drive and generate your first briefing.</p>
+
+<h3>Prerequisites</h3>
+<p>Before you begin, ensure you have:</p>
+<ul>
+    <li><strong>Python 3.11+</strong> (for local development)</li>
+    <li><strong>Docker &amp; Docker Compose</strong> (recommended for deployment)</li>
+    <li><strong>Node.js 18+</strong> (for iOS app development)</li>
+    <li><strong>Xcode</strong> (for iOS app building)</li>
+</ul>
+
+<h3>Required API Keys</h3>
+<table>
+    <thead>
+        <tr><th>Service</th><th>Purpose</th><th>Get Key</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Anthropic</td><td>Claude AI for content generation</td><td><a href="https://console.anthropic.com">console.anthropic.com</a></td></tr>
+        <tr><td>ElevenLabs</td><td>Text-to-speech</td><td><a href="https://elevenlabs.io">elevenlabs.io</a></td></tr>
+    </tbody>
+</table>
+
+<div class="note">
+    <strong>Note:</strong> Weather and news APIs are optional. Morning Drive uses free services (Open-Meteo for weather, RSS feeds for news) by default.
+</div>
+
+<h3>Step 1: Clone the Repository</h3>
+<pre><code>git clone https://github.com/gkamer8/good-morning.git
+cd good-morning</code></pre>
+
+<h3>Step 2: Configure Environment</h3>
+<pre><code># Navigate to backend directory
+cd backend
+
+# Copy the environment template
+cp .env.example .env
+
+# Edit .env and add your API keys
+nano .env</code></pre>
+
+<p>Required environment variables:</p>
+<pre><code>ANTHROPIC_API_KEY=sk-ant-...
+ELEVENLABS_API_KEY=...
+ADMIN_PASSWORD=your-secure-password</code></pre>
+
+<h3>Step 3: Start the Server</h3>
+<pre><code>docker-compose up -d</code></pre>
+
+<div class="note">
+    <strong>Running without Docker:</strong> See the <a href="/docs/development">Development guide</a> for local Python setup without Docker.
+</div>
+
+<h3>Step 4: Verify Installation</h3>
+<pre><code># Check health endpoint
+curl http://localhost:8000/health
+
+# Expected response:
+# {"status": "healthy", "service": "morning-drive"}</code></pre>
+
+<h3>Step 5: Generate Your First Briefing</h3>
+<pre><code># Generate a briefing with default settings
+curl -X POST http://localhost:8000/api/briefings/generate
+
+# Check generation status
+curl http://localhost:8000/api/briefings</code></pre>
+
+<h3>Next Steps</h3>
+<ul>
+    <li>Set up the <a href="/docs/development">iOS app</a> to listen to your briefings</li>
+    <li>Configure <a href="/docs/deployment">production deployment</a></li>
+    <li>Customize user settings via the <a href="/docs/api-reference">API</a></li>
+</ul>
+{% endblock %}

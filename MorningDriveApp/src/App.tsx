@@ -2,8 +2,8 @@
  * Morning Drive - Main App Component
  */
 
-import React, { useEffect, useCallback, useRef } from 'react';
-import { StatusBar, LogBox } from 'react-native';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
+import { StatusBar, LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
 
 // Suppress common warnings that don't affect functionality
 LogBox.ignoreLogs([
@@ -47,9 +47,9 @@ const queryClient = new QueryClient({
 const Stack = createNativeStackNavigator();
 
 function AppContent() {
-  const { setConnected } = useAppConfigStore();
+  const { serverUrl, setConnected, _hasHydrated } = useAppConfigStore();
   const { briefings, setCurrentBriefing } = useBriefingsStore();
-  const isInitialized = useRef(false);
+  const [isApiReady, setApiReady] = useState(false);
 
   const handleBriefingSelect = useCallback(
     (briefing: import('./types').Briefing) => {
@@ -58,26 +58,28 @@ function AppContent() {
     [setCurrentBriefing]
   );
 
+  // Wait for Zustand to hydrate, then initialize API with the correct URL
   useEffect(() => {
-    // Only initialize once
-    if (isInitialized.current) return;
-    isInitialized.current = true;
+    if (!_hasHydrated) return;
 
     const init = async () => {
       try {
-        // Initialize API
-        await api.init();
+        // Set API base URL directly from hydrated Zustand store
+        // This is the persisted URL the user configured
+        await api.setBaseUrl(serverUrl);
+
+        // Mark API as ready BEFORE health check so queries can start
+        setApiReady(true);
 
         // Check server connection
-        const isHealthy = await api.healthCheck();
-        setConnected(isHealthy);
+        const healthResult = await api.healthCheck();
+        setConnected(healthResult.ok);
 
         // Setup audio player
         try {
           await setupPlayer();
         } catch (audioError) {
           console.warn('Audio player setup failed:', audioError);
-          // Continue without audio - user can retry later
         }
 
         // Setup CarPlay
@@ -85,25 +87,42 @@ function AppContent() {
           setupCarPlay(briefings, handleBriefingSelect);
         } catch (carplayError) {
           console.warn('CarPlay setup failed:', carplayError);
-          // CarPlay is optional, continue without it
         }
       } catch (error) {
         console.error('App initialization failed:', error);
         setConnected(false);
+        setApiReady(true);
       }
     };
 
     init();
-  }, [setConnected, briefings, handleBriefingSelect]);
+  }, [_hasHydrated, serverUrl, setConnected, briefings, handleBriefingSelect]);
+
+  // Sync API URL when serverUrl changes in Zustand store
+  useEffect(() => {
+    if (isApiReady && serverUrl && serverUrl !== api.getBaseUrl()) {
+      api.setBaseUrl(serverUrl);
+    }
+  }, [serverUrl, isApiReady]);
 
   // Update CarPlay when briefings change
   useEffect(() => {
+    if (!isApiReady) return;
     try {
       updateBriefingsList(briefings, handleBriefingSelect);
     } catch (error) {
       console.warn('Failed to update CarPlay briefings list:', error);
     }
-  }, [briefings, handleBriefingSelect]);
+  }, [briefings, handleBriefingSelect, isApiReady]);
+
+  // Show loading screen until Zustand hydrates and API is initialized
+  if (!_hasHydrated || !isApiReady) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>
@@ -141,3 +160,12 @@ export default function App() {
     </QueryClientProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f7',
+  },
+});

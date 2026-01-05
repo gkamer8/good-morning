@@ -111,6 +111,9 @@ class UserSettings(Base):
     # Music feature - play a music piece at the end of the briefing
     include_music: Mapped[bool] = mapped_column(default=False)
 
+    # Writing style - affects the tone and style of the generated script
+    writing_style: Mapped[str] = mapped_column(String(50), default="good_morning_america")
+
 
 class Schedule(Base):
     """Briefing generation schedule."""
@@ -177,6 +180,7 @@ async def migrate_db():
             "segment_order": ("TEXT", "'[\"news\", \"sports\", \"weather\", \"fun\"]'"),
             "include_music": ("BOOLEAN", "0"),
             "tts_provider": ("VARCHAR(50)", "'elevenlabs'"),
+            "writing_style": ("VARCHAR(50)", "'good_morning_america'"),
         },
         "briefings": {
             "generation_errors": ("TEXT", "'[]'"),  # JSON list of errors

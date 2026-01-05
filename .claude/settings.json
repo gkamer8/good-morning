@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "github@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": false
+  }
+}

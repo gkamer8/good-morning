@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login{% endblock %}
+
+{% block body_class %}login-page{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block content %}
+<div class="login-box">
+    <h1>Morning Drive</h1>
+    <p class="subtitle">Admin Panel</p>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="/admin/login">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autofocus>
+        <button type="submit">Sign In</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

@@ -1,6 +1,11 @@
 """Morning Drive - AI-powered morning briefing service."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load .env file before any other imports that might use env vars
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +47,15 @@ async def lifespan(app: FastAPI):
         name="audio",
     )
 
+    # Mount static files for CSS/JS assets
+    static_dir = Path(__file__).parent.parent / "static"
+    if static_dir.exists():
+        app.mount(
+            "/static",
+            StaticFiles(directory=str(static_dir)),
+            name="static",
+        )
+
     # Start the background scheduler
     _scheduler = await setup_scheduler()
     if _scheduler:
@@ -61,6 +75,8 @@ app = FastAPI(
     description="AI-powered personalized morning briefing service",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None,  # Disable default docs, we use custom template
+    redoc_url=None,  # Disable ReDoc
 )
 
 # CORS middleware for iOS app

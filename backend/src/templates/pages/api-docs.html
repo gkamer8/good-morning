@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}API Documentation{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css">
+<style>
+    /* Override Swagger UI colors to match our theme */
+    .swagger-ui .topbar { display: none; }
+
+    .swagger-ui .info .title {
+        color: #333;
+    }
+
+    .swagger-ui .opblock.opblock-get .opblock-summary-method {
+        background: #667eea;
+    }
+
+    .swagger-ui .opblock.opblock-get {
+        border-color: #667eea;
+        background: rgba(102, 126, 234, 0.1);
+    }
+
+    .swagger-ui .opblock.opblock-post .opblock-summary-method {
+        background: #764ba2;
+    }
+
+    .swagger-ui .opblock.opblock-post {
+        border-color: #764ba2;
+        background: rgba(118, 75, 162, 0.1);
+    }
+
+    .swagger-ui .opblock.opblock-put .opblock-summary-method {
+        background: #28a745;
+    }
+
+    .swagger-ui .opblock.opblock-put {
+        border-color: #28a745;
+        background: rgba(40, 167, 69, 0.1);
+    }
+
+    .swagger-ui .opblock.opblock-delete .opblock-summary-method {
+        background: #dc3545;
+    }
+
+    .swagger-ui .opblock.opblock-delete {
+        border-color: #dc3545;
+        background: rgba(220, 53, 69, 0.1);
+    }
+
+    .swagger-ui .btn.execute {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-color: #667eea;
+    }
+
+    .swagger-ui .btn.execute:hover {
+        background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
+    }
+
+    .swagger-ui .btn.authorize {
+        color: #667eea;
+        border-color: #667eea;
+    }
+
+    .swagger-ui .btn.authorize svg {
+        fill: #667eea;
+    }
+
+    .swagger-ui a.nostyle, .swagger-ui a.nostyle:visited {
+        color: #667eea;
+    }
+
+    .swagger-ui .response-col_status {
+        color: #333;
+    }
+
+    /* Container styling */
+    #swagger-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .swagger-ui .wrapper {
+        padding: 0;
+    }
+
+    .swagger-ui .info {
+        margin: 20px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="swagger-container">
+    <div id="swagger-ui"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
+<script>
+    window.onload = function() {
+        SwaggerUIBundle({
+            url: "/openapi.json",
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIBundle.SwaggerUIStandalonePreset
+            ],
+            layout: "BaseLayout",
+            defaultModelsExpandDepth: 0,
+            docExpansion: "list"
+        });
+    };
+</script>
+{% endblock %}

@@ -11,6 +11,7 @@ import {
   Dimensions,
   ScrollView,
 } from 'react-native';
+import TextTicker from 'react-native-text-ticker';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Slider from '@react-native-community/slider';
@@ -43,6 +44,7 @@ const SEGMENT_CONFIG: Record<string, { icon: string; color: string; label: strin
   history: { icon: 'time', color: '#D2691E', label: 'History' },
   quote: { icon: 'chatbubble-ellipses', color: '#FFD700', label: 'Quote' },
   outro: { icon: 'moon', color: '#9370DB', label: 'Outro' },
+  music: { icon: 'musical-notes', color: '#C9A0DC', label: 'Music' },
   classical: { icon: 'musical-notes', color: '#C9A0DC', label: 'Classical' },
 };
 
@@ -195,9 +197,17 @@ export function PlayerScreen() {
         <Text style={styles.segmentLabel} numberOfLines={1}>
           {currentSegment ? getSegmentConfig(currentSegment.type).label.toUpperCase() : 'MORNING DRIVE'}
         </Text>
-        <Text style={styles.segmentTitle} numberOfLines={1} ellipsizeMode="tail">
+        <TextTicker
+          style={styles.segmentTitle}
+          duration={10000}
+          loop
+          bounce={false}
+          repeatSpacer={50}
+          marqueeDelay={1000}
+          scrollSpeed={50}
+        >
           {currentSegment?.title || currentBriefing.title}
-        </Text>
+        </TextTicker>
       </View>
 
       {/* Progress Bar with Slider */}

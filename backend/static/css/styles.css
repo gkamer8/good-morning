@@ -1,0 +1,959 @@
+/* Morning Drive - Unified Stylesheet */
+
+/* ==========================================================================
+   Reset & Base
+   ========================================================================== */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f7fa;
+    min-height: 100vh;
+    line-height: 1.6;
+    color: #333;
+}
+
+/* ==========================================================================
+   Header & Navigation
+   ========================================================================== */
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header h1 {
+    font-size: 1.5rem;
+}
+
+.header a {
+    color: white;
+    text-decoration: none;
+    opacity: 0.9;
+}
+
+.header a:hover {
+    opacity: 1;
+}
+
+.nav {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+}
+
+.nav a {
+    color: rgba(255, 255, 255, 0.85);
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s;
+    padding: 6px 12px;
+    border-radius: 6px;
+}
+
+.nav a:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.nav a.active {
+    color: white;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+.container-wide {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+/* ==========================================================================
+   Cards
+   ========================================================================== */
+
+.card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 30px;
+    overflow: hidden;
+}
+
+.card-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+    font-weight: 600;
+    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header .count {
+    font-weight: normal;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.card-body {
+    padding: 24px;
+}
+
+.card-gradient {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+/* ==========================================================================
+   Typography
+   ========================================================================== */
+
+h2 {
+    margin-bottom: 16px;
+    color: #333;
+}
+
+h3 {
+    margin: 24px 0 12px 0;
+    color: #444;
+}
+
+p {
+    margin-bottom: 12px;
+    color: #555;
+}
+
+a {
+    color: #667eea;
+}
+
+a:hover {
+    color: #764ba2;
+}
+
+/* ==========================================================================
+   Code
+   ========================================================================== */
+
+pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    margin: 12px 0;
+}
+
+code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+}
+
+pre code {
+    background: transparent;
+    padding: 0;
+}
+
+/* ==========================================================================
+   Lists
+   ========================================================================== */
+
+ul, ol {
+    margin: 12px 0 12px 24px;
+}
+
+li {
+    margin-bottom: 8px;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn {
+    display: inline-block;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    color: white;
+}
+
+.btn-secondary {
+    background: #6c757d;
+}
+
+.btn-secondary:hover {
+    box-shadow: 0 4px 12px rgba(108, 117, 125, 0.4);
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.btn-play {
+    padding: 6px 12px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-right: 8px;
+}
+
+.btn-play:hover {
+    background: #218838;
+}
+
+.btn-play.playing {
+    background: #dc3545;
+}
+
+.btn-play.playing:hover {
+    background: #c82333;
+}
+
+.btn-play.loading {
+    background: #6c757d;
+    cursor: wait;
+}
+
+.btn-delete {
+    padding: 6px 12px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.btn-delete:hover {
+    background: #c82333;
+}
+
+.refresh-btn {
+    padding: 10px 20px;
+    background: white;
+    color: #667eea;
+    border: 2px solid currentColor;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.refresh-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.preview-btn {
+    padding: 4px 10px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.preview-btn:hover {
+    background: #5a67d8;
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+}
+
+th, td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+th {
+    background: #f8f9fa;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.composer {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.empty {
+    text-align: center;
+    color: #666;
+    padding: 40px !important;
+}
+
+/* ==========================================================================
+   Hero Section
+   ========================================================================== */
+
+.hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 80px 40px;
+    text-align: center;
+}
+
+.hero h1 {
+    font-size: 3rem;
+    margin-bottom: 16px;
+}
+
+.hero p {
+    font-size: 1.3rem;
+    opacity: 0.9;
+    margin-bottom: 32px;
+    color: white;
+}
+
+.hero .btn {
+    background: white;
+    color: #667eea;
+    margin: 0 8px;
+}
+
+.hero .btn:hover {
+    color: #764ba2;
+}
+
+/* ==========================================================================
+   Features Grid
+   ========================================================================== */
+
+.features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin: 40px 0;
+}
+
+.feature {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.feature h3 {
+    margin: 0 0 12px 0;
+    color: #667eea;
+}
+
+.feature p {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+/* ==========================================================================
+   Sidebar Navigation (Docs)
+   ========================================================================== */
+
+.sidebar-nav {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 24px;
+}
+
+.sidebar-nav h4 {
+    font-size: 0.85rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.sidebar-nav a {
+    display: block;
+    padding: 8px 12px;
+    color: #333;
+    text-decoration: none;
+    border-radius: 6px;
+    margin-bottom: 4px;
+}
+
+.sidebar-nav a:hover {
+    background: #f0f0f0;
+}
+
+.sidebar-nav a.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+/* ==========================================================================
+   Docs Layout
+   ========================================================================== */
+
+.docs-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+/* ==========================================================================
+   Alerts & Notes
+   ========================================================================== */
+
+.note {
+    background: #e8f4fd;
+    border-left: 4px solid #667eea;
+    padding: 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+}
+
+.warning {
+    background: #fff3cd;
+    border-left: 4px solid #ffc107;
+    padding: 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+}
+
+.message {
+    padding: 14px 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* ==========================================================================
+   Badges
+   ========================================================================== */
+
+.badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.badge.active {
+    background: #d4edda;
+    color: #155724;
+}
+
+.badge.inactive {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.badge.ok {
+    background: #d4edda;
+    color: #155724;
+}
+
+.badge.configured {
+    background: #cce5ff;
+    color: #004085;
+}
+
+.badge.warning {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badge.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="password"],
+textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+input[type="file"] {
+    padding: 10px 0;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.help {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 6px;
+}
+
+/* ==========================================================================
+   Login Page
+   ========================================================================== */
+
+.login-page {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-box {
+    background: white;
+    padding: 40px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    width: 100%;
+    max-width: 400px;
+}
+
+.login-box h1 {
+    text-align: center;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.login-box .subtitle {
+    text-align: center;
+    color: #666;
+    margin-bottom: 32px;
+}
+
+.login-box .error {
+    background: #fee;
+    color: #c00;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.login-box input[type="password"] {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 16px;
+    margin-bottom: 20px;
+}
+
+.login-box input[type="password"]:focus {
+    border-color: #667eea;
+}
+
+.login-box button {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.login-box button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* ==========================================================================
+   Audio Player (Fixed Bottom)
+   ========================================================================== */
+
+#audio-player {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #1a1a2e;
+    color: white;
+    padding: 12px 20px;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+}
+
+#audio-player.visible {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+#audio-player .now-playing {
+    flex: 1;
+}
+
+#audio-player .now-playing .title {
+    font-weight: 600;
+}
+
+#audio-player .now-playing .composer {
+    font-size: 0.85rem;
+    opacity: 0.7;
+}
+
+#audio-player audio {
+    flex: 2;
+}
+
+#audio-player .close-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+/* ==========================================================================
+   Health Status Banner
+   ========================================================================== */
+
+.status-banner {
+    padding: 20px 24px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-banner.ok {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+}
+
+.status-banner.warning {
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: #333;
+}
+
+.status-banner.error {
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    color: white;
+}
+
+.status-banner h2 {
+    font-size: 1.3rem;
+    margin-bottom: 4px;
+    color: inherit;
+}
+
+.status-banner .stats {
+    display: flex;
+    gap: 20px;
+    font-size: 0.9rem;
+}
+
+/* ==========================================================================
+   Health Table Styles
+   ========================================================================== */
+
+.error-text {
+    color: #dc3545;
+    font-size: 0.9rem;
+}
+
+.fast {
+    color: #28a745;
+}
+
+.slow {
+    color: #dc3545;
+}
+
+/* ==========================================================================
+   Modal
+   ========================================================================== */
+
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.close-modal {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    line-height: 1;
+}
+
+.close-modal:hover {
+    color: #333;
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: calc(80vh - 80px);
+}
+
+.loading {
+    text-align: center;
+    color: #666;
+    padding: 40px;
+}
+
+.error-msg {
+    color: #dc3545;
+    text-align: center;
+    padding: 20px;
+}
+
+.no-stories {
+    color: #666;
+    text-align: center;
+    padding: 20px;
+}
+
+/* ==========================================================================
+   RSS Story List
+   ========================================================================== */
+
+.story-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.story-item {
+    padding: 16px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.story-item:last-child {
+    border-bottom: none;
+}
+
+.story-item a {
+    color: #333;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.4;
+    display: block;
+}
+
+.story-item a:hover {
+    color: #667eea;
+}
+
+.story-date {
+    display: block;
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 4px;
+}
+
+.story-summary {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 8px;
+    line-height: 1.5;
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.footer {
+    background: #1e1e1e;
+    color: #999;
+    text-align: center;
+    padding: 40px 20px;
+    margin-top: 60px;
+}
+
+.footer a {
+    color: #667eea;
+}
+
+.footer p {
+    color: #999;
+}
+
+/* ==========================================================================
+   Responsive Design
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    .docs-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .hero h1 {
+        font-size: 2rem;
+    }
+
+    .hero p {
+        font-size: 1rem;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .header {
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px 20px;
+    }
+
+    .nav {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 12px;
+    }
+
+    .status-banner {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+    }
+}

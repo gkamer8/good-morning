@@ -2,7 +2,7 @@
  * Home screen - main dashboard for Morning Drive
  */
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,11 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
+import TextTicker from 'react-native-text-ticker';
+
 import { useNavigation } from '@react-navigation/native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -40,11 +44,51 @@ export function HomeScreen() {
 
   const { isPlaying } = usePlayerState();
 
+  // Animated progress value for smooth transitions
+  const animatedProgress = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   // Track manual pull-to-refresh separately from automatic background refetches
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Track if error dialog is currently showing to prevent duplicates
   const [errorDialogShowing, setErrorDialogShowing] = useState<string | null>(null);
+
+  // Animate progress bar smoothly when progress changes
+  useEffect(() => {
+    Animated.timing(animatedProgress, {
+      toValue: generationProgress,
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [generationProgress, animatedProgress]);
+
+  // Pulse animation for the generating indicator
+  useEffect(() => {
+    if (isGenerating) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.05,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isGenerating, pulseAnim]);
 
   const handleMiniPlayerToggle = async () => {
     if (isPlaying) {
@@ -59,7 +103,6 @@ export function HomeScreen() {
     data: briefingsData,
     isLoading,
     refetch,
-    isRefetching,
   } = useQuery({
     queryKey: ['briefings'],
     queryFn: () => api.listBriefings(20),
@@ -81,14 +124,13 @@ export function HomeScreen() {
   // Handle user's decision on an error
   const handleErrorDecision = useCallback(
     async (briefingId: number, actionId: string, decision: 'continue' | 'cancel' | 'retry') => {
-      setErrorDialogShowing(null);  // Clear dialog state
+      setErrorDialogShowing(null);
       try {
         await api.resolveBriefingError(briefingId, actionId, decision);
         if (decision === 'cancel') {
           setGenerating(false);
           Alert.alert('Cancelled', 'Briefing generation was cancelled.');
         }
-        // For continue/retry, polling will resume and pick up new status
       } catch (error) {
         console.error('Error resolving:', error);
         Alert.alert('Error', 'Failed to send decision to server.');
@@ -102,7 +144,6 @@ export function HomeScreen() {
     (briefingId: number, pendingAction: { action_id: string; error: { message: string; fallback_description?: string }; options: string[] }) => {
       const { action_id, error, options } = pendingAction;
 
-      // Prevent showing the same dialog multiple times
       if (errorDialogShowing === action_id) {
         return;
       }
@@ -162,7 +203,7 @@ export function HomeScreen() {
                 `Your briefing is ready, but ${warningCount} issue${warningCount > 1 ? 's' : ''} occurred during generation. Some content may be missing.`
               );
             } else {
-              Alert.alert('Success', 'Your morning briefing is ready!');
+              Alert.alert('Success', 'Your briefing is ready to play!');
             }
           } else if (status.status === 'failed') {
             setGenerating(false);
@@ -172,14 +213,10 @@ export function HomeScreen() {
             Alert.alert('Error', errorMsg);
           } else if (status.status === 'cancelled') {
             setGenerating(false);
-            // User already got cancellation confirmation
           } else if (status.status === 'awaiting_confirmation' && status.pending_action) {
-            // Show dialog and wait for user decision
             showErrorDialog(briefingId, status.pending_action);
-            // Continue polling to detect when user has responded
             setTimeout(checkStatus, 2000);
           } else {
-            // Continue polling
             setTimeout(checkStatus, 3000);
           }
         } catch (error) {
@@ -206,7 +243,7 @@ export function HomeScreen() {
   const handleGenerateBriefing = () => {
     Alert.alert(
       'Generate New Briefing',
-      'This will create a new morning briefing with the latest news, sports, and weather.',
+      'Create a fresh briefing with the latest news, sports, and weather. This typically takes 2-3 minutes.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Generate', onPress: () => generateMutation.mutate() },
@@ -214,8 +251,31 @@ export function HomeScreen() {
     );
   };
 
+  const handleCancelGeneration = () => {
+    Alert.alert(
+      'Cancel Generation?',
+      'The briefing is still being created. Are you sure you want to cancel?',
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'destructive',
+          onPress: () => setGenerating(false),
+        },
+      ]
+    );
+  };
+
   const briefings = briefingsData?.briefings || [];
   const latestBriefing = briefings[0];
+
+  // Get time-appropriate greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
 
   return (
     <View style={styles.container}>
@@ -236,57 +296,81 @@ export function HomeScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good morning</Text>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
             <Text style={styles.date}>
               {format(new Date(), 'EEEE, MMMM d')}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Settings' as never)}
-          >
-            <Icon name="settings-outline" size={24} color="#666" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Generate Button */}
-        <View style={styles.generateButtonContainer}>
-          <TouchableOpacity
-            style={[
-              styles.generateButton,
-              (isGenerating || generateMutation.isPending) &&
-                styles.generateButtonDisabled,
-            ]}
-            onPress={handleGenerateBriefing}
-            disabled={isGenerating || generateMutation.isPending}
-          >
-            {isGenerating || generateMutation.isPending ? (
-              <View style={styles.generatingContent}>
-                <ActivityIndicator color="#fff" size="small" style={styles.generatingSpinner} />
-                <Text style={styles.generatingStepText} numberOfLines={1}>
-                  {generationStep || 'Generating...'}
-                </Text>
-                <Text style={styles.progressText}>{generationProgress}%</Text>
-              </View>
-            ) : (
-              <View style={styles.generateContent}>
-                <Icon name="sparkles" size={24} color="#fff" />
-                <Text style={styles.generateButtonText}>
-                  Generate Today's Briefing
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          {/* Progress Bar - always rendered to prevent layout shift */}
-          <View style={styles.progressBar}>
-            <View
+          <View style={styles.headerActions}>
+            {/* Generate Button - subtle in header */}
+            <TouchableOpacity
               style={[
-                styles.progressFill,
-                { width: isGenerating ? `${generationProgress}%` : '0%' },
+                styles.headerButton,
+                (isGenerating || generateMutation.isPending) && styles.headerButtonDisabled,
               ]}
-            />
+              onPress={handleGenerateBriefing}
+              disabled={isGenerating || generateMutation.isPending}
+            >
+              <Icon
+                name="add-circle-outline"
+                size={26}
+                color={(isGenerating || generateMutation.isPending) ? '#ccc' : '#4f46e5'}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => navigation.navigate('Settings' as never)}
+            >
+              <Icon name="settings-outline" size={24} color="#666" />
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* Generation Progress Card - only shown when generating */}
+        {(isGenerating || generateMutation.isPending) && (
+          <Animated.View
+            style={[
+              styles.generationCard,
+              { transform: [{ scale: pulseAnim }] }
+            ]}
+          >
+            <View style={styles.generationHeader}>
+              <View style={styles.generationTitleRow}>
+                <Icon name="sparkles" size={20} color="#4f46e5" />
+                <Text style={styles.generationTitle}>Creating Your Briefing</Text>
+              </View>
+              <TouchableOpacity onPress={handleCancelGeneration}>
+                <Icon name="close-circle" size={24} color="#999" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.generationStep} numberOfLines={1}>
+              {generationStep || 'Starting...'}
+            </Text>
+
+            {/* Smooth animated progress bar */}
+            <View style={styles.progressBarContainer}>
+              <Animated.View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: animatedProgress.interpolate({
+                      inputRange: [0, 100],
+                      outputRange: ['0%', '100%'],
+                    }),
+                  },
+                ]}
+              />
+            </View>
+
+            <View style={styles.generationFooter}>
+              <ActivityIndicator size="small" color="#4f46e5" />
+              <Text style={styles.generationPercent}>
+                {Math.round(generationProgress)}% complete
+              </Text>
+            </View>
+          </Animated.View>
+        )}
 
         {/* Latest Briefing */}
         {latestBriefing && (
@@ -316,13 +400,25 @@ export function HomeScreen() {
         )}
 
         {/* Empty State */}
-        {!isLoading && briefings.length === 0 && (
+        {!isLoading && briefings.length === 0 && !isGenerating && (
           <View style={styles.emptyState}>
-            <Icon name="radio-outline" size={64} color="#ccc" />
+            <View style={styles.emptyIconContainer}>
+              <Icon name="radio-outline" size={48} color="#4f46e5" />
+            </View>
             <Text style={styles.emptyTitle}>No briefings yet</Text>
             <Text style={styles.emptyText}>
-              Generate your first morning briefing to get started!
+              Your personalized briefings will appear here.{'\n'}
+              They're automatically generated each morning,{'\n'}
+              or you can create one now.
             </Text>
+            <TouchableOpacity
+              style={styles.emptyButton}
+              onPress={handleGenerateBriefing}
+              disabled={generateMutation.isPending}
+            >
+              <Icon name="sparkles" size={20} color="#fff" />
+              <Text style={styles.emptyButtonText}>Create Your First Briefing</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -347,9 +443,17 @@ export function HomeScreen() {
           >
             <Icon name="radio" size={24} color="#4f46e5" />
             <View style={styles.miniPlayerText}>
-              <Text style={styles.miniPlayerTitle} numberOfLines={1}>
+              <TextTicker
+                style={styles.miniPlayerTitle}
+                duration={10000}
+                loop
+                bounce={false}
+                repeatSpacer={50}
+                marqueeDelay={1000}
+                scrollSpeed={50}
+              >
                 {currentBriefing.title}
-              </Text>
+              </TextTicker>
               <Text style={styles.miniPlayerSubtitle}>
                 {isPlaying ? 'Now Playing' : 'Paused'}
               </Text>
@@ -397,67 +501,74 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-  generateButtonContainer: {
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
+    padding: 8,
+  },
+  headerButtonDisabled: {
+    opacity: 0.5,
+  },
+  // Generation Progress Card
+  generationCard: {
+    backgroundColor: '#fff',
     marginHorizontal: 16,
-    marginVertical: 16,
-  },
-  generateButton: {
-    backgroundColor: '#4f46e5',
+    marginBottom: 16,
     borderRadius: 16,
-    padding: 20,
-    minHeight: 68, // Fixed height to prevent layout shift
+    padding: 16,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#e8e6f9',
   },
-  generateButtonDisabled: {
-    backgroundColor: '#8b85f2',
-  },
-  generateContent: {
+  generationHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 28, // Fixed height to prevent layout shift
-    gap: 12,
-  },
-  generatingContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    height: 28, // Fixed height to match generateContent
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  generatingSpinner: {
-    width: 24,
-    height: 24, // Explicit size to prevent layout shift
-    marginRight: 10,
+  generationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  generatingStepText: {
-    flex: 1,
-    color: '#fff',
+  generationTitle: {
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 20, // Fixed line height
+    color: '#1a1a2e',
   },
-  generateButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  progressText: {
-    color: '#fff',
+  generationStep: {
     fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 10,
-    minWidth: 40,
-    textAlign: 'right',
+    color: '#666',
+    marginBottom: 12,
   },
-  progressBar: {
-    height: 4,
-    backgroundColor: '#e0e0e0',
-    marginTop: 8,
-    borderRadius: 2,
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: '#e8e6f9',
+    borderRadius: 3,
     overflow: 'hidden',
+    marginBottom: 12,
   },
-  progressFill: {
+  progressBarFill: {
     height: '100%',
     backgroundColor: '#4f46e5',
+    borderRadius: 3,
+  },
+  generationFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  generationPercent: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
   },
   section: {
     marginTop: 24,
@@ -474,17 +585,41 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 40,
   },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#f0eeff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
+    color: '#1a1a2e',
+    marginBottom: 12,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#666',
     textAlign: 'center',
-    marginTop: 8,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 10,
+  },
+  emptyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   loadingContainer: {
     paddingVertical: 60,

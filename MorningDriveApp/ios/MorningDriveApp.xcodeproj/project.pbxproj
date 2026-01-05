@@ -29,8 +29,10 @@
 		A5A6550D538E41CE91146056 /* MaterialCommunityIcons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8A848141D5A34233AB5D0A3A /* MaterialCommunityIcons.ttf */; };
 		AAD12CD42ADA43BD9FA4E276 /* FontAwesome5_Brands.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5F8217E207834657804923FA /* FontAwesome5_Brands.ttf */; };
 		B8FC43640A4E49BA9D1A2226 /* Feather.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E2BD5CA1559A4456B7B11E6B /* Feather.ttf */; };
+		CARPLAY001 /* CarSceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = CARPLAY002 /* CarSceneDelegate.m */; };
 		D4B3E4115360496594E85AF2 /* EvilIcons.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 28558294BBF9451B930543B4 /* EvilIcons.ttf */; };
 		F9281BD793934193B6A1F170 /* AntDesign.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2A1CDD5880C8477C9044CBF7 /* AntDesign.ttf */; };
+		PHONE001 /* PhoneSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = PHONE002 /* PhoneSceneDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,10 +61,13 @@
 		8480BB2F0CAC4DA88D0ED9CD /* FontAwesome6_Brands.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome6_Brands.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome6_Brands.ttf"; sourceTree = "<group>"; };
 		8A848141D5A34233AB5D0A3A /* MaterialCommunityIcons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = MaterialCommunityIcons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"; sourceTree = "<group>"; };
 		9C8104F457FF4D99BF83DF13 /* Ionicons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Ionicons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Ionicons.ttf"; sourceTree = "<group>"; };
+		CARPLAY002 /* CarSceneDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CarSceneDelegate.m; path = MorningDriveApp/CarSceneDelegate.m; sourceTree = "<group>"; };
+		CARPLAY003 /* CarSceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CarSceneDelegate.h; path = MorningDriveApp/CarSceneDelegate.h; sourceTree = "<group>"; };
 		E2BD5CA1559A4456B7B11E6B /* Feather.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Feather.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Feather.ttf"; sourceTree = "<group>"; };
 		E3A36FEE77C049E4AD4F360B /* FontAwesome.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome.ttf"; sourceTree = "<group>"; };
 		E9D1BA60684E4F80A20840E2 /* FontAwesome6_Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome6_Regular.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome6_Regular.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		PHONE002 /* PhoneSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PhoneSceneDelegate.swift; path = MorningDriveApp/PhoneSceneDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +87,9 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				PHONE002 /* PhoneSceneDelegate.swift */,
+				CARPLAY003 /* CarSceneDelegate.h */,
+				CARPLAY002 /* CarSceneDelegate.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -331,6 +339,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				CARPLAY001 /* CarSceneDelegate.m in Sources */,
+				PHONE001 /* PhoneSceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -341,8 +351,9 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 3B4392A12AC88292D35C810B /* Pods-MorningDriveApp.debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Dev";
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MorningDriveApp/MorningDriveApp.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -360,9 +371,10 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = MorningDriveApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.g0rdon.morning.dev;
+				PRODUCT_NAME = "Morning Drive Dev";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "MorningDriveApp/MorningDriveApp-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -375,6 +387,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MorningDriveApp/MorningDriveApp.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -391,9 +404,10 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = MorningDriveApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.g0rdon.morning;
+				PRODUCT_NAME = "Morning Drive";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "MorningDriveApp/MorningDriveApp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 			};

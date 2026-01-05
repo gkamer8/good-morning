@@ -1,0 +1,86 @@
+# Morning Drive - Production Docker Compose
+#
+# This file is for deploying to a production server.
+# Copy this file and .env.prod.example to your server.
+#
+# Usage:
+#   1. Copy this file to your server
+#   2. Create .env file with your API keys (see .env.prod.example)
+#   3. Run: docker compose -f docker-compose.prod.yml up -d
+#
+# The services will automatically restart on boot due to restart: always
+
+services:
+  morning-drive:
+    image: usaiinc/morning-drive:${IMAGE_TAG:-latest}
+    container_name: morning-drive
+    ports:
+      - "5000:8000"
+    volumes:
+      # Persistent storage for database and audio files
+      - morning_drive_data:/app/data
+      # Custom audio assets (optional - for custom intro/outro music)
+      - ./assets:/app/assets:ro
+    environment:
+      # Required API keys (set in .env file)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      # Optional API keys
+      - NEWS_API_KEY=${NEWS_API_KEY:-}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:-}
+      # Database
+      - DATABASE_URL=sqlite+aiosqlite:///./data/morning_drive.db
+      # MinIO connection
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET=morning-drive-music
+      # Admin interface - CHANGE THIS!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      # Application settings
+      - DEBUG=false
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - morning-drive-network
+
+  # MinIO for music storage (S3-compatible object storage)
+  minio:
+    image: minio/minio:latest
+    container_name: morning-drive-minio
+    ports:
+      - "9000:9000"   # API (needed for app to connect)
+      - "9001:9001"   # Console (optional, for web UI)
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - morning-drive-network
+
+volumes:
+  morning_drive_data:
+    name: morning-drive-data
+  minio_data:
+    name: morning-drive-minio-data
+
+networks:
+  morning-drive-network:
+    name: morning-drive-network

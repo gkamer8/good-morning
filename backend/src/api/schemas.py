@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class BriefingSegment(BaseModel):
     """A segment within a briefing."""
 
-    type: str  # intro, news, sports, weather, fun, outro
+    type: str  # intro, news, sports, weather, fun, music, outro
     start_time: float  # seconds from start
     end_time: float
     title: str
@@ -152,6 +152,12 @@ class SettingsBase(BaseModel):
         description="Include a music piece at the end of the briefing",
     )
 
+    # Writing style - affects the tone and style of the generated script
+    writing_style: str = Field(
+        default="good_morning_america",
+        description="Writing style: good_morning_america (upbeat), firing_line (intellectual wit), ernest_hemingway (terse)",
+    )
+
 
 class SettingsUpdate(SettingsBase):
     """Settings update request."""
@@ -213,7 +219,7 @@ class ScriptSegmentItem(BaseModel):
 class ScriptSegment(BaseModel):
     """A segment in the full script."""
 
-    type: str  # intro, news, sports, weather, fun, outro
+    type: str  # intro, news, sports, weather, fun, music, outro
     items: list[ScriptSegmentItem] = []
     background_music: Optional[str] = None
     transition_in: Optional[str] = None

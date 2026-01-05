@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Morning Drive{% endblock %} - Morning Drive</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    {% block header %}
+    <div class="header">
+        <a href="/"><h1>Morning Drive</h1></a>
+        <nav class="nav">
+            <a href="/" class="{% if active_page == 'home' %}active{% endif %}">Home</a>
+            <a href="/docs/getting-started" class="{% if active_page == 'docs' %}active{% endif %}">Docs</a>
+            <a href="/api/docs">API</a>
+            {% if is_authenticated %}
+            <a href="/admin/music" class="{% if active_page == 'admin-music' %}active{% endif %}">Music</a>
+            <a href="/admin/health" class="{% if active_page == 'admin-health' %}active{% endif %}">Health</a>
+            <a href="/admin/logout">Sign Out</a>
+            {% else %}
+            <a href="/admin" class="{% if active_page == 'admin' %}active{% endif %}">Admin</a>
+            {% endif %}
+        </nav>
+    </div>
+    {% endblock %}
+
+    {% block content %}{% endblock %}
+
+    {% block footer %}
+    <div class="footer">
+        <p>Morning Drive - AI-powered personalized morning briefings</p>
+        <p><a href="https://github.com/gkamer8/good-morning">View on GitHub</a></p>
+    </div>
+    {% endblock %}
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

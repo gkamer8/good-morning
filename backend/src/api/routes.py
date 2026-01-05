@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,13 +28,20 @@ from src.api.schemas import (
 from src.config import get_settings
 from src.storage.database import Briefing, MusicPiece, Schedule, UserSettings, get_session
 
-# Valid ElevenLabs voice IDs (Rachel, Adam, Arnold)
-VALID_VOICE_IDS = {
+# Stock ElevenLabs voice IDs (Rachel, Adam, Arnold)
+STOCK_VOICE_IDS = {
     "21m00Tcm4TlvDq8ikWAM",  # Rachel
     "pNInz6obpgDQGcFmaJgB",  # Adam
     "VR6AewLTigWG4xSOukaG",  # Arnold
 }
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
+
+
+def get_valid_voice_ids() -> set:
+    """Get all valid voice IDs including stock and custom voices."""
+    settings = get_settings()
+    custom_voice_ids = set(settings.elevenlabs_custom_voice_ids or [])
+    return STOCK_VOICE_IDS | custom_voice_ids
 
 router = APIRouter()
 settings = get_settings()
@@ -88,9 +95,11 @@ async def list_briefings(
     session: AsyncSession = Depends(get_session),
 ):
     """List all available briefings."""
+    # Include both completed and completed_with_warnings
+    completed_statuses = ["completed", "completed_with_warnings"]
     result = await session.execute(
         select(Briefing)
-        .where(Briefing.status == "completed")
+        .where(Briefing.status.in_(completed_statuses))
         .order_by(Briefing.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -99,7 +108,7 @@ async def list_briefings(
 
     # Count total
     count_result = await session.execute(
-        select(Briefing).where(Briefing.status == "completed")
+        select(Briefing).where(Briefing.status.in_(completed_statuses))
     )
     total = len(count_result.scalars().all())
 
@@ -312,6 +321,7 @@ async def get_settings_endpoint(
         tts_provider=getattr(user_settings, 'tts_provider', None) or "elevenlabs",
         segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
         include_music=user_settings.include_music or False,
+        writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
         updated_at=user_settings.updated_at,
     )
 
@@ -339,7 +349,8 @@ async def update_settings(
             value = [loc.model_dump() if hasattr(loc, "model_dump") else loc for loc in value]
         elif field == "voice_id":
             # Validate voice_id - use default if invalid
-            if value not in VALID_VOICE_IDS:
+            # Include both stock voices and custom voices from settings
+            if value not in get_valid_voice_ids():
                 value = DEFAULT_VOICE_ID
         setattr(user_settings, field, value)
 
@@ -364,6 +375,7 @@ async def update_settings(
         tts_provider=getattr(user_settings, 'tts_provider', None) or "elevenlabs",
         segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
         include_music=user_settings.include_music or False,
+        writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
         updated_at=user_settings.updated_at,
     )
 
@@ -725,432 +737,21 @@ async def stream_music_piece(
     if not await storage.file_exists(piece.s3_key):
         raise HTTPException(status_code=404, detail="Audio file not found in storage")
 
-    # Get presigned URL for redirect (more efficient for large files)
-    url = storage.get_presigned_url(piece.s3_key, expires_hours=1)
+    # Stream through the backend (MinIO internal hostname not accessible from browser)
+    def iter_file():
+        response = storage.get_file_stream(piece.s3_key)
+        try:
+            for chunk in response.stream(32 * 1024):  # 32KB chunks
+                yield chunk
+        finally:
+            response.close()
+            response.release_conn()
 
-    # For now, just redirect to the presigned URL
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=url)
-
-
-# === Documentation ===
-
-
-@router.get("/docs", response_class=HTMLResponse)
-async def get_documentation():
-    """Serve the documentation website."""
-    return DOCS_HTML
-
-
-DOCS_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Morning Drive - Documentation</title>
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-dark: #3730a3;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #1e293b;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --success: #22c55e;
-            --warning: #f59e0b;
+    return StreamingResponse(
+        iter_file(),
+        media_type="audio/mpeg",
+        headers={
+            "Content-Length": str(piece.file_size_bytes),
+            "Accept-Ranges": "bytes",
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-        }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-
-        /* Header */
-        header {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            padding: 60px 0;
-            text-align: center;
-        }
-        header h1 { font-size: 3rem; margin-bottom: 12px; }
-        header p { font-size: 1.25rem; opacity: 0.9; }
-
-        /* Navigation */
-        nav {
-            background: var(--card);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 0;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        nav ul { display: flex; gap: 32px; list-style: none; justify-content: center; flex-wrap: wrap; }
-        nav a { color: var(--text); text-decoration: none; font-weight: 500; }
-        nav a:hover { color: var(--primary); }
-
-        /* Main Content */
-        main { padding: 48px 0; }
-        section { margin-bottom: 48px; }
-        h2 {
-            color: var(--primary);
-            font-size: 1.75rem;
-            margin-bottom: 24px;
-            padding-bottom: 12px;
-            border-bottom: 2px solid var(--border);
-        }
-        h3 { font-size: 1.25rem; margin: 24px 0 12px; color: var(--text); }
-        p { margin-bottom: 16px; color: var(--text-muted); }
-
-        /* Cards */
-        .card {
-            background: var(--card);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .card h3 { margin-top: 0; color: var(--primary); }
-
-        /* Grid */
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
-
-        /* Code */
-        code {
-            background: #f1f5f9;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.875rem;
-        }
-        pre {
-            background: #1e293b;
-            color: #e2e8f0;
-            padding: 20px;
-            border-radius: 8px;
-            overflow-x: auto;
-            margin: 16px 0;
-        }
-        pre code { background: none; color: inherit; padding: 0; }
-
-        /* Tables */
-        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { background: var(--bg); font-weight: 600; }
-
-        /* Badges */
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        .badge-get { background: #dbeafe; color: #1d4ed8; }
-        .badge-post { background: #dcfce7; color: #15803d; }
-        .badge-put { background: #fef3c7; color: #b45309; }
-        .badge-delete { background: #fee2e2; color: #dc2626; }
-
-        /* Feature List */
-        .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
-        .feature {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 16px;
-            background: var(--bg);
-            border-radius: 8px;
-        }
-        .feature-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--primary);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 1.25rem;
-        }
-
-        /* Footer */
-        footer {
-            background: var(--text);
-            color: white;
-            padding: 32px 0;
-            text-align: center;
-        }
-        footer a { color: var(--primary); }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="container">
-            <h1>Morning Drive</h1>
-            <p>Your Personalized Morning Briefing App</p>
-        </div>
-    </header>
-
-    <nav>
-        <div class="container">
-            <ul>
-                <li><a href="#overview">Overview</a></li>
-                <li><a href="#architecture">Architecture</a></li>
-                <li><a href="#news">News Sources</a></li>
-                <li><a href="#audio">Audio Pipeline</a></li>
-                <li><a href="#api">API Reference</a></li>
-                <li><a href="#settings">Settings</a></li>
-            </ul>
-        </div>
-    </nav>
-
-    <main>
-        <div class="container">
-            <!-- Overview -->
-            <section id="overview">
-                <h2>Overview</h2>
-                <p>Morning Drive is a personalized morning briefing app that generates professional radio-style audio content. It combines news, sports, weather, and fun segments into a cohesive audio experience perfect for your morning commute.</p>
-
-                <div class="features">
-                    <div class="feature">
-                        <div class="feature-icon">📰</div>
-                        <div>
-                            <strong>Curated News</strong>
-                            <p>News from your preferred sources and topics</p>
-                        </div>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">🏈</div>
-                        <div>
-                            <strong>Sports Updates</strong>
-                            <p>Scores and highlights from your favorite teams</p>
-                        </div>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">🌤️</div>
-                        <div>
-                            <strong>Weather Forecasts</strong>
-                            <p>Local weather for your configured locations</p>
-                        </div>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">🎙️</div>
-                        <div>
-                            <strong>Voice Selection</strong>
-                            <p>Choose from multiple ElevenLabs voices</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Architecture -->
-            <section id="architecture">
-                <h2>System Architecture</h2>
-                <div class="card">
-                    <h3>Content Generation Pipeline</h3>
-                    <pre><code>┌─────────────────────────────────────────────────────────────┐
-│                    Content Gathering                         │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
-│  │  News    │ │  Sports  │ │ Weather  │ │  Fun Segment │   │
-│  │  Agent   │ │  Agent   │ │  Agent   │ │    Agent     │   │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬───────┘   │
-│       └────────────┴────────────┴──────────────┘           │
-│                           │                                 │
-│                           ▼                                 │
-│              ┌────────────────────────┐                    │
-│              │  Claude Script Writer  │                    │
-│              │  (Radio-style script)  │                    │
-│              └───────────┬────────────┘                    │
-│                          │                                  │
-│                          ▼                                  │
-│              ┌────────────────────────┐                    │
-│              │   ElevenLabs TTS       │                    │
-│              │   (Voice synthesis)    │                    │
-│              └───────────┬────────────┘                    │
-│                          │                                  │
-│                          ▼                                  │
-│              ┌────────────────────────┐                    │
-│              │   Audio Mixer          │                    │
-│              │   (Jingles + Stings)   │                    │
-│              └───────────┬────────────┘                    │
-│                          │                                  │
-│                          ▼                                  │
-│                   Final MP3 Audio                          │
-└─────────────────────────────────────────────────────────────┘</code></pre>
-                </div>
-            </section>
-
-            <!-- News Sources -->
-            <section id="news">
-                <h2>News Sources</h2>
-                <div class="grid">
-                    <div class="card">
-                        <h3>RSS Feeds (Primary)</h3>
-                        <p>Free, reliable news feeds from major outlets:</p>
-                        <ul>
-                            <li><strong>BBC News</strong> - World, Tech, Business</li>
-                            <li><strong>Reuters</strong> - Breaking news</li>
-                            <li><strong>NPR</strong> - US news and culture</li>
-                            <li><strong>Associated Press</strong> - Wire service</li>
-                            <li><strong>TechCrunch</strong> - Tech industry</li>
-                            <li><strong>Hacker News</strong> - Tech community</li>
-                            <li><strong>Ars Technica</strong> - Tech deep-dives</li>
-                        </ul>
-                    </div>
-                    <div class="card">
-                        <h3>Content Filtering</h3>
-                        <p>Your briefing content is personalized using:</p>
-                        <ul>
-                            <li><strong>Priority Topics</strong> - Topics to emphasize (e.g., "AI news", "tech startups")</li>
-                            <li><strong>Exclusions</strong> - Topics to skip (e.g., "celebrity gossip")</li>
-                            <li><strong>Categories</strong> - Tech, Business, World, Science, etc.</li>
-                        </ul>
-                        <p>Claude AI filters and ranks stories based on your preferences.</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Audio Pipeline -->
-            <section id="audio">
-                <h2>Audio Pipeline</h2>
-                <div class="card">
-                    <h3>Production Elements</h3>
-                    <table>
-                        <tr><th>Element</th><th>Description</th><th>Timing</th></tr>
-                        <tr><td>Intro Jingle</td><td>Upbeat opening melody</td><td>~2 seconds</td></tr>
-                        <tr><td>News Sting</td><td>News section intro</td><td>~0.5 seconds</td></tr>
-                        <tr><td>Sports Sting</td><td>Sports section intro</td><td>~0.8 seconds</td></tr>
-                        <tr><td>Weather Sting</td><td>Weather section intro</td><td>~0.7 seconds</td></tr>
-                        <tr><td>Transition Whoosh</td><td>Between major sections</td><td>~0.4 seconds</td></tr>
-                        <tr><td>Outro Jingle</td><td>Pleasant closing</td><td>~2 seconds</td></tr>
-                    </table>
-                </div>
-                <div class="card">
-                    <h3>Voice Styles</h3>
-                    <table>
-                        <tr><th>Style</th><th>Description</th><th>Best For</th></tr>
-                        <tr><td>Energetic</td><td>Upbeat morning show vibe, more expressive</td><td>Morning commute</td></tr>
-                        <tr><td>Professional</td><td>News anchor style, measured delivery</td><td>Business briefings</td></tr>
-                        <tr><td>Calm</td><td>Relaxed, soothing delivery</td><td>Quiet mornings</td></tr>
-                    </table>
-                </div>
-            </section>
-
-            <!-- API Reference -->
-            <section id="api">
-                <h2>API Reference</h2>
-
-                <div class="card">
-                    <h3>Briefings</h3>
-                    <table>
-                        <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/briefings/generate</code></td>
-                            <td>Trigger new briefing generation</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/briefings</code></td>
-                            <td>List all briefings</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/briefings/{id}</code></td>
-                            <td>Get briefing details</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/briefings/{id}/status</code></td>
-                            <td>Check generation progress</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-delete">DELETE</span></td>
-                            <td><code>/api/briefings/{id}</code></td>
-                            <td>Delete a briefing</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <div class="card">
-                    <h3>Settings & Schedule</h3>
-                    <table>
-                        <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/settings</code></td>
-                            <td>Get current settings</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-put">PUT</span></td>
-                            <td><code>/api/settings</code></td>
-                            <td>Update settings</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/schedule</code></td>
-                            <td>Get generation schedule</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-put">PUT</span></td>
-                            <td><code>/api/schedule</code></td>
-                            <td>Update schedule</td>
-                        </tr>
-                    </table>
-                </div>
-            </section>
-
-            <!-- Settings -->
-            <section id="settings">
-                <h2>Settings Reference</h2>
-                <div class="grid">
-                    <div class="card">
-                        <h3>Content Settings</h3>
-                        <ul>
-                            <li><strong>news_topics</strong> - Categories: top, world, technology, business, science, health, entertainment</li>
-                            <li><strong>news_sources</strong> - Sources: bbc, reuters, npr, nyt, ap, techcrunch, hackernews, arstechnica</li>
-                            <li><strong>priority_topics</strong> - Custom topics to emphasize</li>
-                            <li><strong>news_exclusions</strong> - Custom topics to skip</li>
-                            <li><strong>sports_leagues</strong> - nfl, mlb, nhl, nba, mls, premier_league, atp, wta, pga</li>
-                            <li><strong>fun_segments</strong> - this_day_in_history, quote_of_the_day, market_minute, word_of_the_day, dad_joke, sports_history</li>
-                        </ul>
-                    </div>
-                    <div class="card">
-                        <h3>Audio Settings</h3>
-                        <ul>
-                            <li><strong>duration_minutes</strong> - Briefing length (5-30 min)</li>
-                            <li><strong>include_intro_music</strong> - Enable jingles</li>
-                            <li><strong>include_transitions</strong> - Enable section stings</li>
-                            <li><strong>voice_id</strong> - ElevenLabs voice ID</li>
-                            <li><strong>voice_style</strong> - energetic, professional, calm</li>
-                            <li><strong>voice_speed</strong> - 0.9x to 1.2x</li>
-                        </ul>
-                    </div>
-                    <div class="card">
-                        <h3>Schedule Settings</h3>
-                        <ul>
-                            <li><strong>enabled</strong> - Enable auto-generation</li>
-                            <li><strong>days_of_week</strong> - 0=Monday to 6=Sunday</li>
-                            <li><strong>time_hour</strong> - Hour (0-23)</li>
-                            <li><strong>time_minute</strong> - Minute (0-59)</li>
-                            <li><strong>timezone</strong> - e.g., America/New_York</li>
-                        </ul>
-                    </div>
-                </div>
-            </section>
-        </div>
-    </main>
-
-    <footer>
-        <div class="container">
-            <p>Morning Drive &copy; 2025 | Built with FastAPI + Claude + ElevenLabs</p>
-        </div>
-    </footer>
-</body>
-</html>
-"""
+    )

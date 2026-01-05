@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="docs-layout">
+    <div class="sidebar">
+        <div class="sidebar-nav">
+            <h4>Documentation</h4>
+            <a href="/docs/getting-started" class="{% if active_doc == 'getting-started' %}active{% endif %}">Getting Started</a>
+            <a href="/docs/deployment" class="{% if active_doc == 'deployment' %}active{% endif %}">Deployment</a>
+            <a href="/docs/development" class="{% if active_doc == 'development' %}active{% endif %}">Development</a>
+            <a href="/docs/api-reference" class="{% if active_doc == 'api-reference' %}active{% endif %}">API Reference</a>
+        </div>
+    </div>
+    <main>
+        <div class="card">
+            <div class="card-body">
+                <h2>{{ page_title }}</h2>
+                {% block doc_content %}{% endblock %}
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

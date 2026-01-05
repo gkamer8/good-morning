@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Health Check{% endblock %}
+
+{% block content %}
+<div class="container-wide">
+    <div class="status-banner {{ overall_status }}">
+        <div>
+            <h2>{{ overall_text }}</h2>
+            <div class="stats">
+                <span>{{ ok_count }}/{{ total_count }} services healthy</span>
+            </div>
+        </div>
+        <a href="/admin/health" class="refresh-btn">Refresh</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            RSS News Feeds
+            <span class="count">{{ rss_results|length }} sources</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Status</th>
+                    <th>Response Time</th>
+                    <th>Error</th>
+                    <th>Preview</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in rss_results %}
+                <tr>
+                    <td><strong>{{ result.name }}</strong></td>
+                    <td>
+                        {% if result.status == 'ok' %}
+                        <span class="badge ok">OK</span>
+                        {% elif result.status == 'configured' %}
+                        <span class="badge configured">Configured</span>
+                        {% elif result.status == 'not_configured' %}
+                        <span class="badge warning">Not Configured</span>
+                        {% elif result.status == 'timeout' %}
+                        <span class="badge warning">Timeout</span>
+                        {% else %}
+                        <span class="badge error">Error</span>
+                        {% endif %}
+                    </td>
+                    <td class="{% if result.response_time_ms < 500 %}fast{% elif result.response_time_ms > 2000 %}slow{% endif %}">{{ result.response_time_ms }}ms</td>
+                    <td class="error-text">{{ result.error or '-' }}</td>
+                    <td>
+                        {% if result.status == 'ok' %}
+                        <button class="preview-btn" onclick="showRssPreview('{{ result.name }}')">Preview</button>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            External APIs
+            <span class="count">{{ api_results|length }} services</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Response Time</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in api_results %}
+                <tr>
+                    <td><strong>{{ result.name }}</strong></td>
+                    <td>
+                        {% if result.status == 'ok' %}
+                        <span class="badge ok">OK</span>
+                        {% elif result.status == 'configured' %}
+                        <span class="badge configured">Configured</span>
+                        {% elif result.status == 'not_configured' %}
+                        <span class="badge warning">Not Configured</span>
+                        {% elif result.status == 'timeout' %}
+                        <span class="badge warning">Timeout</span>
+                        {% else %}
+                        <span class="badge error">Error</span>
+                        {% endif %}
+                    </td>
+                    <td class="{% if result.response_time_ms < 500 %}fast{% elif result.response_time_ms > 2000 %}slow{% endif %}">{{ result.response_time_ms }}ms</td>
+                    <td class="error-text">{{ result.error or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            Internal Services
+            <span class="count">{{ internal_results|length }} services</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Response Time</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in internal_results %}
+                <tr>
+                    <td><strong>{{ result.name }}</strong></td>
+                    <td>
+                        {% if result.status == 'ok' %}
+                        <span class="badge ok">OK</span>
+                        {% elif result.status == 'configured' %}
+                        <span class="badge configured">Configured</span>
+                        {% elif result.status == 'not_configured' %}
+                        <span class="badge warning">Not Configured</span>
+                        {% elif result.status == 'timeout' %}
+                        <span class="badge warning">Timeout</span>
+                        {% else %}
+                        <span class="badge error">Error</span>
+                        {% endif %}
+                    </td>
+                    <td class="{% if result.response_time_ms < 500 %}fast{% elif result.response_time_ms > 2000 %}slow{% endif %}">{{ result.response_time_ms }}ms</td>
+                    <td class="error-text">{{ result.error or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="timestamp" style="text-align: center; color: #666; font-size: 0.85rem; margin-top: 20px;">
+        Last checked: {{ last_checked }}
+    </p>
+</div>
+
+<!-- RSS Preview Modal -->
+<div id="rss-modal" class="modal" onclick="if(event.target===this) closeModal()">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">RSS Feed Preview</h3>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+            <div class="loading">Loading stories...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function showRssPreview(feedName) {
+        const modal = document.getElementById('rss-modal');
+        const title = document.getElementById('modal-title');
+        const body = document.getElementById('modal-body');
+
+        title.textContent = feedName + ' - Recent Stories';
+        body.innerHTML = '<div class="loading">Loading stories...</div>';
+        modal.classList.add('show');
+
+        fetch('/admin/rss-preview?feed=' + encodeURIComponent(feedName))
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    body.innerHTML = '<div class="error-msg">' + data.error + '</div>';
+                    return;
+                }
+
+                if (data.stories.length === 0) {
+                    body.innerHTML = '<div class="no-stories">No stories found</div>';
+                    return;
+                }
+
+                let html = '<ul class="story-list">';
+                data.stories.forEach(story => {
+                    const date = story.published ? '<span class="story-date">' + story.published + '</span>' : '';
+                    html += `
+                        <li class="story-item">
+                            <a href="${story.link}" target="_blank" rel="noopener">${story.title}</a>
+                            ${date}
+                            ${story.summary ? '<p class="story-summary">' + story.summary + '</p>' : ''}
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                body.innerHTML = html;
+            })
+            .catch(err => {
+                body.innerHTML = '<div class="error-msg">Failed to load: ' + err.message + '</div>';
+            });
+    }
+
+    function closeModal() {
+        document.getElementById('rss-modal').classList.remove('show');
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+    });
+</script>
+{% endblock %}

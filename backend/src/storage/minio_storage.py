@@ -206,6 +206,28 @@ class MinioStorage:
             expires=timedelta(hours=expires_hours),
         )
 
+    def get_file_stream(self, s3_key: str):
+        """Get a streaming response for a file.
+
+        Args:
+            s3_key: Key (path) in the bucket
+
+        Returns:
+            MinIO response object (use as iterator, must close after use)
+        """
+        return self.client.get_object(self.bucket, s3_key)
+
+    def get_file_stat(self, s3_key: str):
+        """Get file metadata/stats.
+
+        Args:
+            s3_key: Key (path) in the bucket
+
+        Returns:
+            Object stat info
+        """
+        return self.client.stat_object(self.bucket, s3_key)
+
 
 # Singleton instance
 _storage: Optional[MinioStorage] = None
