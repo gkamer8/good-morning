@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.template_config import templates
 from src.config import get_settings
-from src.storage.database import MusicPiece, get_session
+from src.storage.database import Briefing, MusicPiece, Schedule, UserSettings, get_session
 from src.storage.minio_storage import get_minio_storage
 
 
@@ -40,7 +40,7 @@ EXTERNAL_APIS_TO_CHECK = {
     "ZenQuotes (Quote of the Day)": "https://zenquotes.io/api/today",
     "icanhazdadjoke (Dad Jokes)": ("https://icanhazdadjoke.com/", {"Accept": "application/json"}),
     "Open-Meteo (Weather)": "https://api.open-meteo.com/v1/forecast?latitude=40.7&longitude=-74&current_weather=true",
-    "CNBC Market Data": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "Yahoo Finance (Market Data)": "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d",
     "ESPN (Sports)": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
 }
 
@@ -617,3 +617,341 @@ async def get_rss_preview(request: Request, feed: str):
         return JSONResponse({"error": f"HTTP error: {e.response.status_code}"}, status_code=502)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api-preview")
+async def get_api_preview(request: Request, api: str):
+    """Get preview of data from an external API."""
+    if not is_authenticated(request):
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    # Find the API config
+    api_config = EXTERNAL_APIS_TO_CHECK.get(api)
+    if not api_config:
+        return JSONResponse({"error": f"Unknown API: {api}"}, status_code=404)
+
+    # Extract URL and headers
+    if isinstance(api_config, tuple):
+        url, headers = api_config
+    else:
+        url = api_config
+        headers = {}
+
+    try:
+        default_headers = {"User-Agent": "MorningDrive/1.0 Preview"}
+        default_headers.update(headers)
+
+        async with httpx.AsyncClient(timeout=10.0, headers=default_headers) as client:
+            response = await client.get(url, follow_redirects=True)
+            response.raise_for_status()
+
+        # Parse response based on API type
+        preview_data = {"api": api, "url": url}
+
+        if "Wikipedia" in api:
+            # This Day in History - returns events for a specific date
+            data = response.json()
+            events = data.get("events", [])[:5]
+            preview_data["type"] = "events"
+            preview_data["items"] = [
+                {
+                    "year": str(event.get("year", "")),
+                    "text": event.get("text", ""),
+                }
+                for event in events
+            ]
+
+        elif "ZenQuotes" in api:
+            # Quote of the Day
+            data = response.json()
+            if isinstance(data, list) and len(data) > 0:
+                quote = data[0]
+                preview_data["type"] = "quote"
+                preview_data["items"] = [{
+                    "quote": quote.get("q", ""),
+                    "author": quote.get("a", "Unknown"),
+                }]
+            else:
+                preview_data["type"] = "quote"
+                preview_data["items"] = []
+
+        elif "dadjoke" in api:
+            # Dad Joke
+            data = response.json()
+            preview_data["type"] = "joke"
+            preview_data["items"] = [{
+                "joke": data.get("joke", "No joke found"),
+            }]
+
+        elif "Open-Meteo" in api or "Weather" in api:
+            # Weather data
+            data = response.json()
+            current = data.get("current_weather", {})
+            preview_data["type"] = "weather"
+            preview_data["items"] = [{
+                "temperature": f"{current.get('temperature', 'N/A')}°C",
+                "windspeed": f"{current.get('windspeed', 'N/A')} km/h",
+                "weathercode": current.get("weathercode", "N/A"),
+                "time": current.get("time", "N/A"),
+            }]
+
+        elif "ESPN" in api:
+            # Sports scoreboard
+            data = response.json()
+            events = data.get("events", [])[:5]
+            preview_data["type"] = "sports"
+            preview_data["items"] = []
+            for event in events:
+                name = event.get("name", "Unknown Game")
+                status = event.get("status", {}).get("type", {}).get("shortDetail", "")
+                competitions = event.get("competitions", [])
+                score = ""
+                if competitions:
+                    competitors = competitions[0].get("competitors", [])
+                    if len(competitors) >= 2:
+                        scores = [f"{c.get('team', {}).get('abbreviation', '?')}: {c.get('score', '?')}" for c in competitors]
+                        score = " vs ".join(scores)
+                preview_data["items"].append({
+                    "name": name,
+                    "status": status,
+                    "score": score,
+                })
+
+        elif "Yahoo Finance" in api:
+            # Yahoo Finance Chart API - extract market data
+            data = response.json()
+            result = data.get("chart", {}).get("result", [])
+            if result:
+                meta = result[0].get("meta", {})
+                price = meta.get("regularMarketPrice", 0)
+                prev_close = meta.get("chartPreviousClose", 0)
+                change = price - prev_close if prev_close else 0
+                change_pct = (change / prev_close * 100) if prev_close else 0
+                preview_data["type"] = "market"
+                preview_data["items"] = [{
+                    "symbol": meta.get("symbol", "^GSPC"),
+                    "name": meta.get("shortName", "S&P 500"),
+                    "price": f"${price:,.2f}",
+                    "change": f"{change:+.2f} ({change_pct:+.2f}%)",
+                    "high": f"${meta.get('regularMarketDayHigh', 0):,.2f}",
+                    "low": f"${meta.get('regularMarketDayLow', 0):,.2f}",
+                }]
+            else:
+                preview_data["type"] = "error"
+                preview_data["items"] = [{"error": "No data returned"}]
+
+        else:
+            # Generic JSON preview - show first few keys/values
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    preview_data["type"] = "json"
+                    preview_data["items"] = [{"raw": str(data)[:500]}]
+                elif isinstance(data, list):
+                    preview_data["type"] = "json"
+                    preview_data["items"] = [{"raw": str(data[:3])[:500]}]
+                else:
+                    preview_data["type"] = "text"
+                    preview_data["items"] = [{"raw": str(data)[:500]}]
+            except Exception:
+                preview_data["type"] = "text"
+                preview_data["items"] = [{"raw": response.text[:500]}]
+
+        return JSONResponse(preview_data)
+
+    except httpx.TimeoutException:
+        return JSONResponse({"error": "Request timed out"}, status_code=504)
+    except httpx.HTTPStatusError as e:
+        return JSONResponse({"error": f"HTTP error: {e.response.status_code}"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/sports-preview")
+async def get_sports_preview(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Preview sports data based on user settings - shows what would be fetched for a briefing."""
+    if not is_authenticated(request):
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    # Get user settings
+    result = await session.execute(select(UserSettings).limit(1))
+    user_settings = result.scalar_one_or_none()
+
+    if not user_settings:
+        return JSONResponse({"error": "No user settings found"}, status_code=404)
+
+    sports_leagues = user_settings.sports_leagues or []
+    sports_teams = user_settings.sports_teams or []
+
+    if not sports_leagues and not sports_teams:
+        return JSONResponse({
+            "leagues": [],
+            "teams": [],
+            "message": "No sports leagues or teams configured in settings",
+        })
+
+    # Import sports tools
+    from src.tools.sports_tools import (
+        LEAGUE_ENDPOINTS,
+        fetch_espn_scoreboard,
+        get_team_updates,
+    )
+
+    preview_data = {
+        "configured_leagues": sports_leagues,
+        "configured_teams": sports_teams,
+        "leagues": [],
+        "team_games": [],
+    }
+
+    # Fetch scoreboard data for each configured league
+    for league in sports_leagues:
+        league_key = league.lower()
+        if league_key not in LEAGUE_ENDPOINTS:
+            preview_data["leagues"].append({
+                "league": league,
+                "error": f"Unknown league: {league}",
+                "games": [],
+            })
+            continue
+
+        try:
+            games = await fetch_espn_scoreboard(league_key)
+            preview_data["leagues"].append({
+                "league": league.upper(),
+                "endpoint": f"{LEAGUE_ENDPOINTS[league_key]}/scoreboard",
+                "games": [
+                    {
+                        "home_team": g.home_team,
+                        "away_team": g.away_team,
+                        "home_score": g.home_score,
+                        "away_score": g.away_score,
+                        "status": g.status,
+                        "start_time": g.start_time.isoformat() if g.start_time else None,
+                    }
+                    for g in games[:5]  # Limit to 5 games per league
+                ],
+                "total_games": len(games),
+            })
+        except Exception as e:
+            preview_data["leagues"].append({
+                "league": league.upper(),
+                "error": str(e),
+                "games": [],
+            })
+
+    # Fetch games for specific teams
+    if sports_teams:
+        try:
+            team_games = await get_team_updates(sports_teams)
+            preview_data["team_games"] = [
+                {
+                    "league": g.league,
+                    "home_team": g.home_team,
+                    "away_team": g.away_team,
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "status": g.status,
+                    "headline": g.headline,
+                }
+                for g in team_games
+            ]
+        except Exception as e:
+            preview_data["team_games_error"] = str(e)
+
+    return JSONResponse(preview_data)
+
+
+@router.get("/scheduler")
+async def admin_scheduler_page(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Admin scheduler monitoring page."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    # Get scheduler instance
+    from src.main import get_scheduler
+    scheduler = get_scheduler()
+
+    # Get schedule configuration
+    result = await session.execute(select(Schedule).limit(1))
+    schedule = result.scalar_one_or_none()
+
+    # Format schedule info
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    if schedule:
+        schedule_enabled = schedule.enabled
+        schedule_time = f"{schedule.time_hour:02d}:{schedule.time_minute:02d}"
+        schedule_days = ", ".join(day_names[d] for d in sorted(schedule.days_of_week))
+        schedule_timezone = schedule.timezone
+    else:
+        schedule_enabled = False
+        schedule_time = "Not configured"
+        schedule_days = "Not configured"
+        schedule_timezone = "Not configured"
+
+    # Get scheduler jobs
+    jobs = []
+    next_run = None
+    scheduler_running = scheduler is not None and scheduler.running
+
+    if scheduler_running:
+        for job in scheduler.get_jobs():
+            job_next_run = job.next_run_time
+            if job_next_run:
+                next_run_str = job_next_run.strftime("%Y-%m-%d %H:%M:%S %Z")
+                if next_run is None:
+                    next_run = next_run_str
+            else:
+                next_run_str = "Not scheduled"
+
+            jobs.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run": next_run_str,
+                "trigger": str(job.trigger),
+            })
+
+    # Get recent briefings
+    result = await session.execute(
+        select(Briefing)
+        .order_by(Briefing.created_at.desc())
+        .limit(20)
+    )
+    briefings_raw = result.scalars().all()
+
+    briefings = []
+    for b in briefings_raw:
+        errors = b.generation_errors if b.generation_errors else []
+        briefings.append({
+            "id": b.id,
+            "title": b.title,
+            "created_at": b.created_at.strftime("%Y-%m-%d %H:%M"),
+            "status": b.status,
+            "duration": f"{int(b.duration_seconds // 60)}:{int(b.duration_seconds % 60):02d}" if b.duration_seconds else "-",
+            "error_count": len(errors),
+            "errors": errors,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "admin/scheduler.html",
+        {
+            "active_page": "admin-scheduler",
+            "is_authenticated": True,
+            "scheduler_running": scheduler_running,
+            "schedule_enabled": schedule_enabled,
+            "schedule_time": schedule_time,
+            "schedule_days": schedule_days,
+            "schedule_timezone": schedule_timezone,
+            "next_run": next_run,
+            "jobs": jobs,
+            "briefings": briefings,
+            "last_checked": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        },
+    )

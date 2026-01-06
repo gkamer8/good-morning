@@ -63,21 +63,6 @@ async def docs_development(request: Request):
     )
 
 
-@router.get("/docs/api-reference")
-async def docs_api_reference(request: Request):
-    """API reference documentation page."""
-    return templates.TemplateResponse(
-        request,
-        "pages/docs/api-reference.html",
-        {
-            "active_page": "docs",
-            "active_doc": "api-reference",
-            "page_title": "API Reference",
-            "is_authenticated": False,
-        },
-    )
-
-
 @router.get("/docs")
 async def docs_index():
     """Redirect /docs to getting started page."""

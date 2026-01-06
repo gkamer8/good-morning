@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -145,6 +146,66 @@ async def fetch_espn_scoreboard(league: str) -> list[GameScore]:
         return []
 
 
+def filter_games_for_briefing(
+    games: list[GameScore],
+    user_timezone: str = "America/New_York",
+    max_days_future: int = 5,
+) -> list[GameScore]:
+    """Filter out games too far in the future.
+
+    Args:
+        games: List of games from ESPN
+        user_timezone: User's timezone string
+        max_days_future: Maximum days ahead to include scheduled games
+
+    Returns:
+        Filtered list of games within the time window
+    """
+    if not games:
+        return []
+
+    try:
+        tz = ZoneInfo(user_timezone)
+    except Exception:
+        tz = ZoneInfo("America/New_York")
+
+    now_local = datetime.now(tz)
+    today = now_local.date()
+    yesterday = today - timedelta(days=1)
+    max_future_date = today + timedelta(days=max_days_future)
+
+    filtered = []
+    for game in games:
+        # Always include in-progress games
+        if game.status == "in_progress":
+            filtered.append(game)
+            continue
+
+        # Include finals from today or yesterday
+        if game.status == "final":
+            if game.start_time:
+                game_date = game.start_time.astimezone(tz).date()
+                if game_date >= yesterday:
+                    filtered.append(game)
+            continue
+
+        # For scheduled games: filter by date range
+        if game.status == "scheduled" and game.start_time:
+            game_date = game.start_time.astimezone(tz).date()
+            # Only include if within the next N days
+            if today <= game_date <= max_future_date:
+                filtered.append(game)
+            continue
+
+        # Postponed games: include if recent
+        if game.status == "postponed" and game.start_time:
+            game_date = game.start_time.astimezone(tz).date()
+            if game_date >= yesterday and game_date <= max_future_date:
+                filtered.append(game)
+
+    return filtered
+
+
 async def fetch_espn_news(league: str, limit: int = 5) -> list[SportsNews]:
     """Fetch news/headlines from ESPN API."""
     if league not in LEAGUE_ENDPOINTS:
@@ -190,18 +251,24 @@ async def fetch_espn_news(league: str, limit: int = 5) -> list[SportsNews]:
 
 async def get_scores_for_leagues(
     leagues: list[str],
+    user_timezone: str = "America/New_York",
 ) -> dict[str, list[GameScore]]:
     """Fetch scores for multiple leagues.
 
+    Args:
+        leagues: List of league identifiers
+        user_timezone: User's timezone for filtering
+
     Returns:
-        Dict mapping league name to list of games
+        Dict mapping league name to list of filtered games
     """
     results = {}
 
     for league in leagues:
         league_key = league.lower()
         scores = await fetch_espn_scoreboard(league_key)
-        results[league_key] = scores
+        filtered = filter_games_for_briefing(scores, user_timezone)
+        results[league_key] = filtered
 
     return results
 
@@ -229,11 +296,13 @@ async def get_sports_news(
 
 async def get_team_updates(
     teams: list[dict],
+    user_timezone: str = "America/New_York",
 ) -> list[GameScore]:
     """Get recent game info for specific teams.
 
     Args:
         teams: List of dicts with 'name' and 'league' keys
+        user_timezone: User's timezone for filtering
     """
     relevant_games = []
     leagues_to_check = set(t["league"].lower() for t in teams)
@@ -242,8 +311,10 @@ async def get_team_updates(
     # Fetch scoreboards for relevant leagues
     for league in leagues_to_check:
         scores = await fetch_espn_scoreboard(league)
+        # Filter first, then check for team matches
+        filtered_scores = filter_games_for_briefing(scores, user_timezone)
 
-        for game in scores:
+        for game in filtered_scores:
             home_lower = game.home_team.lower()
             away_lower = game.away_team.lower()
 
@@ -261,16 +332,39 @@ def format_sports_for_agent(
     scores: dict[str, list[GameScore]],
     news: list[SportsNews],
     team_games: list[GameScore],
+    user_timezone: str = "America/New_York",
+    favorite_teams: list[dict] = None,
 ) -> str:
     """Format sports data for the Claude agent."""
+    try:
+        tz = ZoneInfo(user_timezone)
+    except Exception:
+        tz = ZoneInfo("America/New_York")
+
+    today = datetime.now(tz).date()
     lines = ["# Sports Update\n"]
+
+    # Add context about favorite teams
+    if favorite_teams:
+        team_names = [t.get("name", "") for t in favorite_teams if t.get("name")]
+        if team_names:
+            lines.append(f"**User's favorite teams:** {', '.join(team_names)}\n")
+
+    def format_game_time(game: GameScore) -> str:
+        """Format game time with date context."""
+        if not game.start_time:
+            return "TBD"
+        local_time = game.start_time.astimezone(tz)
+        if local_time.date() == today:
+            return f"Today at {local_time.strftime('%I:%M %p')}"
+        else:
+            return local_time.strftime("%b %d at %I:%M %p")
 
     # Featured team games first
     if team_games:
         lines.append("## Your Teams\n")
         for game in team_games:
             if game.status == "final":
-                winner = game.home_team if game.home_score > game.away_score else game.away_team
                 lines.append(
                     f"**{game.league}:** {game.away_team} {game.away_score} @ "
                     f"{game.home_team} {game.home_score} (Final)"
@@ -283,7 +377,7 @@ def format_sports_for_agent(
                     f"{game.home_team} {game.home_score} (In Progress)"
                 )
             elif game.status == "scheduled":
-                time_str = game.start_time.strftime("%I:%M %p") if game.start_time else "TBD"
+                time_str = format_game_time(game)
                 lines.append(
                     f"**{game.league}:** {game.away_team} @ {game.home_team} ({time_str})"
                 )
@@ -319,7 +413,7 @@ def format_sports_for_agent(
                         f"{game.home_team} {game.home_score} (LIVE)"
                     )
                 else:
-                    time_str = game.start_time.strftime("%I:%M %p") if game.start_time else "TBD"
+                    time_str = format_game_time(game)
                     lines.append(f"- {game.away_team} @ {game.home_team} ({time_str})")
             lines.append("")
 

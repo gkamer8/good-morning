@@ -23,6 +23,11 @@ from src.scheduler import setup_scheduler
 _scheduler = None
 
 
+def get_scheduler():
+    """Get the global scheduler instance."""
+    return _scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""

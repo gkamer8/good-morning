@@ -73,6 +73,7 @@
                     <th>Status</th>
                     <th>Response Time</th>
                     <th>Error</th>
+                    <th>Preview</th>
                 </tr>
             </thead>
             <tbody>
@@ -94,6 +95,17 @@
                     </td>
                     <td class="{% if result.response_time_ms < 500 %}fast{% elif result.response_time_ms > 2000 %}slow{% endif %}">{{ result.response_time_ms }}ms</td>
                     <td class="error-text">{{ result.error or '-' }}</td>
+                    <td>
+                        {% if result.status == 'ok' %}
+                        {% if 'ESPN' in result.name %}
+                        <button class="preview-btn" onclick="showSportsPreview()">My Sports</button>
+                        {% else %}
+                        <button class="preview-btn" onclick="showApiPreview('{{ result.name }}')">Preview</button>
+                        {% endif %}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -194,6 +206,207 @@
                     `;
                 });
                 html += '</ul>';
+                body.innerHTML = html;
+            })
+            .catch(err => {
+                body.innerHTML = '<div class="error-msg">Failed to load: ' + err.message + '</div>';
+            });
+    }
+
+    function showApiPreview(apiName) {
+        const modal = document.getElementById('rss-modal');
+        const title = document.getElementById('modal-title');
+        const body = document.getElementById('modal-body');
+
+        title.textContent = apiName + ' - Preview';
+        body.innerHTML = '<div class="loading">Loading data...</div>';
+        modal.classList.add('show');
+
+        fetch('/admin/api-preview?api=' + encodeURIComponent(apiName))
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    body.innerHTML = '<div class="error-msg">' + data.error + '</div>';
+                    return;
+                }
+
+                if (!data.items || data.items.length === 0) {
+                    body.innerHTML = '<div class="no-stories">No data found</div>';
+                    return;
+                }
+
+                let html = '';
+
+                if (data.type === 'events') {
+                    // This Day in History
+                    html = '<ul class="story-list">';
+                    data.items.forEach(item => {
+                        html += `
+                            <li class="story-item">
+                                <strong>${item.year}</strong>: ${item.text}
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                } else if (data.type === 'quote') {
+                    // Quote of the Day
+                    const item = data.items[0];
+                    html = `
+                        <blockquote class="quote-preview">
+                            <p>"${item.quote}"</p>
+                            <footer>— ${item.author}</footer>
+                        </blockquote>
+                    `;
+                } else if (data.type === 'joke') {
+                    // Dad Joke
+                    const item = data.items[0];
+                    html = `
+                        <div class="joke-preview">
+                            <p>${item.joke}</p>
+                        </div>
+                    `;
+                } else if (data.type === 'weather') {
+                    // Weather
+                    const item = data.items[0];
+                    html = `
+                        <div class="weather-preview">
+                            <div class="weather-stat"><strong>Temperature:</strong> ${item.temperature}</div>
+                            <div class="weather-stat"><strong>Wind Speed:</strong> ${item.windspeed}</div>
+                            <div class="weather-stat"><strong>Weather Code:</strong> ${item.weathercode}</div>
+                            <div class="weather-stat"><strong>Time:</strong> ${item.time}</div>
+                        </div>
+                    `;
+                } else if (data.type === 'sports') {
+                    // Sports
+                    html = '<ul class="story-list">';
+                    data.items.forEach(item => {
+                        html += `
+                            <li class="story-item">
+                                <strong>${item.name}</strong>
+                                ${item.score ? '<div class="score">' + item.score + '</div>' : ''}
+                                ${item.status ? '<span class="story-date">' + item.status + '</span>' : ''}
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                } else if (data.type === 'market') {
+                    // Market Data (Yahoo Finance)
+                    html = '<ul class="story-list">';
+                    data.items.forEach(item => {
+                        html += `
+                            <li class="story-item">
+                                <strong>${item.symbol}</strong> (${item.name})<br>
+                                <div class="score">${item.price} ${item.change}</div>
+                                <span class="story-date">Day Range: ${item.low} - ${item.high}</span>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                } else {
+                    // Generic JSON/text
+                    html = '<pre class="json-preview">' + (data.items[0].raw || JSON.stringify(data.items, null, 2)) + '</pre>';
+                }
+
+                body.innerHTML = html;
+            })
+            .catch(err => {
+                body.innerHTML = '<div class="error-msg">Failed to load: ' + err.message + '</div>';
+            });
+    }
+
+    function showSportsPreview() {
+        const modal = document.getElementById('rss-modal');
+        const title = document.getElementById('modal-title');
+        const body = document.getElementById('modal-body');
+
+        title.textContent = 'Sports Preview (Your Settings)';
+        body.innerHTML = '<div class="loading">Fetching sports data from your configured leagues...</div>';
+        modal.classList.add('show');
+
+        fetch('/admin/sports-preview')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    body.innerHTML = '<div class="error-msg">' + data.error + '</div>';
+                    return;
+                }
+
+                if (data.message) {
+                    body.innerHTML = '<div class="no-stories">' + data.message + '</div>';
+                    return;
+                }
+
+                let html = '';
+
+                // Show configured settings
+                html += '<div class="sports-config">';
+                html += '<p><strong>Configured Leagues:</strong> ' + (data.configured_leagues.join(', ') || 'None') + '</p>';
+                if (data.configured_teams && data.configured_teams.length > 0) {
+                    const teamNames = data.configured_teams.map(t => t.name + ' (' + t.league + ')').join(', ');
+                    html += '<p><strong>Tracked Teams:</strong> ' + teamNames + '</p>';
+                }
+                html += '</div><hr style="margin: 16px 0; border: none; border-top: 1px solid #eee;">';
+
+                // Show team games first if any
+                if (data.team_games && data.team_games.length > 0) {
+                    html += '<h4 style="margin: 16px 0 12px 0; color: #667eea;">Your Teams</h4>';
+                    html += '<ul class="story-list">';
+                    data.team_games.forEach(game => {
+                        let scoreText = '';
+                        if (game.status === 'final' || game.status === 'in_progress') {
+                            scoreText = game.away_score + ' - ' + game.home_score;
+                        }
+                        html += `
+                            <li class="story-item">
+                                <strong>${game.away_team} @ ${game.home_team}</strong>
+                                ${scoreText ? '<div class="score">' + scoreText + '</div>' : ''}
+                                <span class="story-date">${game.league} - ${game.status}</span>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                }
+
+                // Show league scoreboards
+                if (data.leagues && data.leagues.length > 0) {
+                    data.leagues.forEach(league => {
+                        html += '<h4 style="margin: 16px 0 12px 0; color: #667eea;">' + league.league + '</h4>';
+
+                        if (league.error) {
+                            html += '<div class="error-msg">' + league.error + '</div>';
+                            return;
+                        }
+
+                        if (league.games.length === 0) {
+                            html += '<p style="color: #666; font-style: italic;">No games today</p>';
+                            return;
+                        }
+
+                        html += '<p style="font-size: 0.8rem; color: #888; margin-bottom: 8px;">Endpoint: ' + league.endpoint + '</p>';
+                        html += '<ul class="story-list">';
+                        league.games.forEach(game => {
+                            let scoreText = '';
+                            if (game.status === 'final' || game.status === 'in_progress') {
+                                scoreText = (game.away_score || 0) + ' - ' + (game.home_score || 0);
+                            }
+                            const statusBadge = game.status === 'final' ? 'Final' :
+                                               game.status === 'in_progress' ? 'LIVE' :
+                                               game.start_time ? new Date(game.start_time).toLocaleTimeString() : 'Scheduled';
+                            html += `
+                                <li class="story-item">
+                                    <strong>${game.away_team} @ ${game.home_team}</strong>
+                                    ${scoreText ? '<div class="score">' + scoreText + '</div>' : ''}
+                                    <span class="story-date">${statusBadge}</span>
+                                </li>
+                            `;
+                        });
+                        html += '</ul>';
+                        if (league.total_games > 5) {
+                            html += '<p style="font-size: 0.85rem; color: #666;">+ ' + (league.total_games - 5) + ' more games</p>';
+                        }
+                    });
+                }
+
                 body.innerHTML = html;
             })
             .catch(err => {

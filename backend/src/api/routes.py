@@ -424,6 +424,35 @@ async def update_schedule(
     await session.commit()
     await session.refresh(schedule)
 
+    # Update the running scheduler with new settings
+    from src.main import get_scheduler
+    from src.scheduler import create_scheduled_briefing
+    from apscheduler.triggers.cron import CronTrigger
+    from zoneinfo import ZoneInfo
+
+    scheduler = get_scheduler()
+    if scheduler and scheduler.running:
+        # Remove existing job if present
+        if scheduler.get_job("morning_briefing"):
+            scheduler.remove_job("morning_briefing")
+
+        # Add new job if schedule is enabled
+        if schedule.enabled:
+            days_str = ",".join(str(d) for d in schedule.days_of_week)
+            trigger = CronTrigger(
+                hour=schedule.time_hour,
+                minute=schedule.time_minute,
+                day_of_week=days_str,
+                timezone=ZoneInfo(schedule.timezone),
+            )
+            scheduler.add_job(
+                create_scheduled_briefing,
+                trigger,
+                id="morning_briefing",
+                name="Morning Briefing Generation",
+                replace_existing=True,
+            )
+
     return ScheduleResponse(
         id=schedule.id,
         enabled=schedule.enabled,

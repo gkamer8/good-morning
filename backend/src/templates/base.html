@@ -17,6 +17,7 @@
             <a href="/api/docs">API</a>
             {% if is_authenticated %}
             <a href="/admin/music" class="{% if active_page == 'admin-music' %}active{% endif %}">Music</a>
+            <a href="/admin/scheduler" class="{% if active_page == 'admin-scheduler' %}active{% endif %}">Scheduler</a>
             <a href="/admin/health" class="{% if active_page == 'admin-health' %}active{% endif %}">Health</a>
             <a href="/admin/logout">Sign Out</a>
             {% else %}

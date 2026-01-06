@@ -32,6 +32,7 @@ class MarketIndex:
     value: float
     change: float
     change_percent: float
+    data_time: Optional[datetime] = None  # When this price data is from
 
 
 @dataclass
@@ -43,6 +44,7 @@ class MarketSummary:
     movers_down: list[StockQuote]
     market_status: str  # pre_market, open, after_hours, closed
     as_of: datetime
+    data_date: Optional[datetime] = None  # Trading date of the data
 
 
 # Major indices to track
@@ -54,43 +56,71 @@ MAJOR_INDICES = [
     ("^VIX", "VIX"),
 ]
 
-# Yahoo Finance API (unofficial - requires browser-like headers)
-YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+# Yahoo Finance Chart API (v8) - works without authentication
+YAHOO_CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart"
 
 # Browser-like headers for Yahoo Finance
 YAHOO_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Cache-Control": "no-cache",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
 }
 
 
-async def fetch_yahoo_quotes(symbols: list[str]) -> list[dict]:
-    """Fetch quotes from Yahoo Finance API."""
-    if not symbols:
-        return []
-
+async def fetch_yahoo_chart(symbol: str) -> dict | None:
+    """Fetch chart data from Yahoo Finance v8 API for a single symbol."""
     try:
-        async with httpx.AsyncClient(timeout=30.0, headers=YAHOO_HEADERS) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=YAHOO_HEADERS) as client:
             response = await client.get(
-                YAHOO_QUOTE_URL,
-                params={"symbols": ",".join(symbols)},
+                f"{YAHOO_CHART_URL}/{symbol}",
+                params={"interval": "1d", "range": "1d"},
             )
             response.raise_for_status()
             data = response.json()
 
-        return data.get("quoteResponse", {}).get("result", [])
+        result = data.get("chart", {}).get("result")
+        if result and len(result) > 0:
+            return result[0].get("meta", {})
+        return None
 
-    except httpx.HTTPStatusError as e:
-        # Yahoo Finance may require authentication - gracefully fail
-        print(f"Yahoo Finance API unavailable (HTTP {e.response.status_code}): using fallback data")
-        return []
     except Exception as e:
-        print(f"Error fetching Yahoo Finance quotes: {e}")
+        print(f"Error fetching Yahoo Finance chart for {symbol}: {e}")
+        return None
+
+
+async def fetch_yahoo_quotes(symbols: list[str]) -> list[dict]:
+    """Fetch quotes from Yahoo Finance Chart API (v8) for multiple symbols."""
+    if not symbols:
         return []
+
+    import asyncio
+
+    async def fetch_single(symbol: str) -> dict | None:
+        meta = await fetch_yahoo_chart(symbol)
+        if meta:
+            # Get the actual market data timestamp
+            market_time = meta.get("regularMarketTime")
+            data_time = datetime.fromtimestamp(market_time) if market_time else None
+            return {
+                "symbol": meta.get("symbol", symbol),
+                "shortName": meta.get("shortName", ""),
+                "longName": meta.get("longName", ""),
+                "regularMarketPrice": meta.get("regularMarketPrice", 0),
+                "regularMarketPreviousClose": meta.get("chartPreviousClose", 0),
+                "regularMarketChange": meta.get("regularMarketPrice", 0) - meta.get("chartPreviousClose", 0),
+                "regularMarketChangePercent": (
+                    ((meta.get("regularMarketPrice", 0) - meta.get("chartPreviousClose", 0))
+                     / meta.get("chartPreviousClose", 1)) * 100
+                    if meta.get("chartPreviousClose", 0) != 0 else 0
+                ),
+                "regularMarketDayHigh": meta.get("regularMarketDayHigh"),
+                "regularMarketDayLow": meta.get("regularMarketDayLow"),
+                "regularMarketVolume": meta.get("regularMarketVolume"),
+                "marketCap": meta.get("marketCap"),
+                "dataTime": data_time,
+            }
+        return None
+
+    results = await asyncio.gather(*[fetch_single(s) for s in symbols])
+    return [r for r in results if r is not None]
 
 
 async def get_market_indices() -> list[MarketIndex]:
@@ -110,6 +140,7 @@ async def get_market_indices() -> list[MarketIndex]:
                 value=quote.get("regularMarketPrice", 0),
                 change=quote.get("regularMarketChange", 0),
                 change_percent=quote.get("regularMarketChangePercent", 0),
+                data_time=quote.get("dataTime"),
             )
         )
 
@@ -170,6 +201,13 @@ async def get_market_summary() -> MarketSummary:
     indices = await get_market_indices()
     gainers, losers = await get_market_movers()
 
+    # Get the data date from the first index with a timestamp
+    data_date = None
+    for idx in indices:
+        if idx.data_time:
+            data_date = idx.data_time
+            break
+
     # Determine market status based on time (simplified)
     now = datetime.now()
     hour = now.hour
@@ -193,6 +231,7 @@ async def get_market_summary() -> MarketSummary:
         movers_down=losers,
         market_status=market_status,
         as_of=now,
+        data_date=data_date,
     )
 
 
@@ -221,8 +260,28 @@ def format_market_for_agent(summary: MarketSummary) -> str:
         "after_hours": "After-Hours Trading",
         "closed": "Markets Closed",
     }
-    lines.append(f"**Status:** {status_text.get(summary.market_status, 'Unknown')}")
-    lines.append(f"**As of:** {summary.as_of.strftime('%I:%M %p %Z')}\n")
+    lines.append(f"**Market Status:** {status_text.get(summary.market_status, 'Unknown')}")
+
+    # Show trading date context
+    if summary.data_date:
+        trading_date = summary.data_date.strftime('%A, %B %d, %Y')
+        trading_time = summary.data_date.strftime('%I:%M %p ET')
+        today = datetime.now().date()
+        data_day = summary.data_date.date()
+
+        if data_day == today:
+            date_context = f"Today ({trading_date})"
+        elif (today - data_day).days == 1:
+            date_context = f"Yesterday ({trading_date})"
+        else:
+            date_context = trading_date
+
+        lines.append(f"**Trading Date:** {date_context}")
+        lines.append(f"**Prices as of:** {trading_time}")
+    else:
+        lines.append(f"**Fetched at:** {summary.as_of.strftime('%I:%M %p')}")
+
+    lines.append("")
 
     # Major indices
     lines.append("## Major Indices\n")

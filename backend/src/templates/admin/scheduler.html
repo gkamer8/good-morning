@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduler{% endblock %}
+
+{% block content %}
+<div class="container-wide">
+    <div class="status-banner {{ 'ok' if scheduler_running else 'warning' }}">
+        <div>
+            <h2>{{ 'Scheduler Running' if scheduler_running else 'Scheduler Not Running' }}</h2>
+            <div class="stats">
+                {% if scheduler_running and next_run %}
+                <span>Next run: {{ next_run }}</span>
+                {% elif not schedule_enabled %}
+                <span>Schedule is disabled</span>
+                {% else %}
+                <span>No scheduled jobs</span>
+                {% endif %}
+            </div>
+        </div>
+        <a href="/admin/scheduler" class="refresh-btn">Refresh</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            Schedule Configuration
+        </div>
+        <table>
+            <tbody>
+                <tr>
+                    <td><strong>Status</strong></td>
+                    <td>
+                        {% if schedule_enabled %}
+                        <span class="badge ok">Enabled</span>
+                        {% else %}
+                        <span class="badge warning">Disabled</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>Time</strong></td>
+                    <td>{{ schedule_time }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Days</strong></td>
+                    <td>{{ schedule_days }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Timezone</strong></td>
+                    <td>{{ schedule_timezone }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <p style="margin: 15px 0 0; color: #666; font-size: 0.85rem;">
+            Configure the schedule via the <a href="/api/docs#/default/update_schedule_api_settings_schedule_put">API</a> or mobile app.
+        </p>
+    </div>
+
+    {% if scheduler_running %}
+    <div class="card">
+        <div class="card-header">
+            Active Jobs
+            <span class="count">{{ jobs|length }} job(s)</span>
+        </div>
+        {% if jobs %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Job ID</th>
+                    <th>Name</th>
+                    <th>Next Run</th>
+                    <th>Trigger</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td><code>{{ job.id }}</code></td>
+                    <td>{{ job.name }}</td>
+                    <td>{{ job.next_run }}</td>
+                    <td><code>{{ job.trigger }}</code></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="padding: 20px; text-align: center; color: #666;">No active jobs scheduled.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header">
+            Recent Briefings
+            <span class="count">Last {{ briefings|length }} briefings</span>
+        </div>
+        {% if briefings %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Errors</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for briefing in briefings %}
+                <tr>
+                    <td>{{ briefing.id }}</td>
+                    <td>{{ briefing.title }}</td>
+                    <td>{{ briefing.created_at }}</td>
+                    <td>
+                        {% if briefing.status == 'completed' %}
+                        <span class="badge ok">Completed</span>
+                        {% elif briefing.status == 'completed_with_warnings' %}
+                        <span class="badge configured">With Warnings</span>
+                        {% elif briefing.status == 'pending' %}
+                        <span class="badge warning">Pending</span>
+                        {% elif briefing.status in ['gathering_content', 'writing_script', 'generating_audio'] %}
+                        <span class="badge configured">{{ briefing.status|replace('_', ' ')|title }}</span>
+                        {% elif briefing.status == 'failed' %}
+                        <span class="badge error">Failed</span>
+                        {% elif briefing.status == 'cancelled' %}
+                        <span class="badge warning">Cancelled</span>
+                        {% else %}
+                        <span class="badge">{{ briefing.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ briefing.duration }}</td>
+                    <td>
+                        {% if briefing.error_count > 0 %}
+                        <button class="preview-btn" onclick="showErrors({{ briefing.id }}, {{ briefing.errors|tojson|e }})">
+                            {{ briefing.error_count }} error(s)
+                        </button>
+                        {% else %}
+                        <span style="color: #666;">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="padding: 20px; text-align: center; color: #666;">No briefings generated yet.</p>
+        {% endif %}
+    </div>
+
+    <p class="timestamp" style="text-align: center; color: #666; font-size: 0.85rem; margin-top: 20px;">
+        Last checked: {{ last_checked }}
+    </p>
+</div>
+
+<!-- Error Details Modal -->
+<div id="error-modal" class="modal" onclick="if(event.target===this) closeModal()">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Generation Errors</h3>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function showErrors(briefingId, errors) {
+        const modal = document.getElementById('error-modal');
+        const title = document.getElementById('modal-title');
+        const body = document.getElementById('modal-body');
+
+        title.textContent = 'Briefing #' + briefingId + ' - Errors';
+
+        if (!errors || errors.length === 0) {
+            body.innerHTML = '<p>No error details available.</p>';
+        } else {
+            let html = '<ul class="story-list">';
+            errors.forEach(error => {
+                const time = error.timestamp ? '<span class="story-date">' + error.timestamp + '</span>' : '';
+                const segment = error.segment ? '<strong>[' + error.segment + ']</strong> ' : '';
+                html += `
+                    <li class="story-item">
+                        ${segment}${error.error_type || 'Error'}
+                        ${time}
+                        <p class="story-summary">${error.message || 'No message'}</p>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            body.innerHTML = html;
+        }
+
+        modal.classList.add('show');
+    }
+
+    function closeModal() {
+        document.getElementById('error-modal').classList.remove('show');
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+    });
+</script>
+{% endblock %}

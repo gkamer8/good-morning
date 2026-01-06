@@ -126,6 +126,12 @@ STRUCTURE:
 - IMPORTANT: You must follow the exact segment order specified above
 {classical_music_instruction}
 
+SPORTS CONTENT GUIDELINES:
+- Always mention games involving the user's favorite teams (listed in the sports data)
+- For other games, only mention if they are extraordinarily interesting or meaningful (playoffs, records, major upsets, rivalry games, etc.)
+- If no games are happening soon or nothing interesting, it's okay to skip sports or briefly acknowledge the offseason
+- Pay attention to game dates - don't present future games as happening today
+
 QUOTE HANDLING:
 When including quotes from real people, format them like this:
 [QUOTE: voice_profile="demographic_description" attribution="Person Name"]
@@ -181,7 +187,9 @@ async def gather_all_content(settings: UserSettings, include_music: bool = False
         news = await get_sports_news(leagues, limit_per_league=2)
         team_games = await get_team_updates(teams) if teams else []
 
-        return format_sports_for_agent(scores, news, team_games)
+        return format_sports_for_agent(
+            scores, news, team_games, favorite_teams=teams
+        )
 
     async def fetch_weather():
         locations = settings.weather_locations or [

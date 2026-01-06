@@ -279,6 +279,39 @@ export function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Fixed Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>{getGreeting()}</Text>
+          <Text style={styles.date}>
+            {format(new Date(), 'EEEE, MMMM d')}
+          </Text>
+        </View>
+        <View style={styles.headerActions}>
+          {/* Generate Button - subtle in header */}
+          <TouchableOpacity
+            style={[
+              styles.headerButton,
+              (isGenerating || generateMutation.isPending) && styles.headerButtonDisabled,
+            ]}
+            onPress={handleGenerateBriefing}
+            disabled={isGenerating || generateMutation.isPending}
+          >
+            <Icon
+              name="add-circle-outline"
+              size={26}
+              color={(isGenerating || generateMutation.isPending) ? '#ccc' : '#4f46e5'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => navigation.navigate('Settings' as never)}
+          >
+            <Icon name="settings-outline" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -286,46 +319,14 @@ export function HomeScreen() {
             refreshing={isManualRefreshing}
             onRefresh={async () => {
               setIsManualRefreshing(true);
-              await refetch();
+              await queryClient.refetchQueries({ queryKey: ['briefings'] });
               setIsManualRefreshing(false);
             }}
             tintColor="#4f46e5"
+            colors={['#4f46e5']}
           />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()}</Text>
-            <Text style={styles.date}>
-              {format(new Date(), 'EEEE, MMMM d')}
-            </Text>
-          </View>
-          <View style={styles.headerActions}>
-            {/* Generate Button - subtle in header */}
-            <TouchableOpacity
-              style={[
-                styles.headerButton,
-                (isGenerating || generateMutation.isPending) && styles.headerButtonDisabled,
-              ]}
-              onPress={handleGenerateBriefing}
-              disabled={isGenerating || generateMutation.isPending}
-            >
-              <Icon
-                name="add-circle-outline"
-                size={26}
-                color={(isGenerating || generateMutation.isPending) ? '#ccc' : '#4f46e5'}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => navigation.navigate('Settings' as never)}
-            >
-              <Icon name="settings-outline" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* Generation Progress Card - only shown when generating */}
         {(isGenerating || generateMutation.isPending) && (
           <Animated.View
@@ -489,7 +490,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 20,
+    paddingBottom: 16,
+    backgroundColor: '#f5f5f7',
   },
   greeting: {
     fontSize: 28,
