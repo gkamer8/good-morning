@@ -72,11 +72,7 @@ async def fetch_espn_scoreboard(
 
     endpoint = f"{LEAGUE_ENDPOINTS[league]}/scoreboard"
 
-    try:
-        tz = ZoneInfo(user_timezone)
-    except Exception:
-        tz = ZoneInfo("America/New_York")
-
+    tz = ZoneInfo(user_timezone)
     today = datetime.now(tz).date()
 
     try:
@@ -199,11 +195,7 @@ def filter_games_for_briefing(
     if not games:
         return []
 
-    try:
-        tz = ZoneInfo(user_timezone)
-    except Exception:
-        tz = ZoneInfo("America/New_York")
-
+    tz = ZoneInfo(user_timezone)
     now_local = datetime.now(tz)
     today = now_local.date()
     yesterday = today - timedelta(days=1)
@@ -391,11 +383,7 @@ def format_sports_for_agent(
     favorite_teams: list[dict] = None,
 ) -> str:
     """Format sports data for the Claude agent."""
-    try:
-        tz = ZoneInfo(user_timezone)
-    except Exception:
-        tz = ZoneInfo("America/New_York")
-
+    tz = ZoneInfo(user_timezone)
     today = datetime.now(tz).date()
     lines = ["# Sports Update\n"]
 
