@@ -53,21 +53,52 @@ LEAGUE_ENDPOINTS = {
 }
 
 
-async def fetch_espn_scoreboard(league: str) -> list[GameScore]:
-    """Fetch scoreboard from ESPN API."""
+async def fetch_espn_scoreboard(
+    league: str,
+    user_timezone: str = "America/New_York",
+    days_ahead: int = 1,
+    days_behind: int = 1,
+) -> list[GameScore]:
+    """Fetch scoreboard from ESPN API.
+
+    Args:
+        league: League identifier (nfl, nhl, nba, etc.)
+        user_timezone: User's timezone for date calculations
+        days_ahead: Number of days ahead to fetch (default 1 = today and tomorrow)
+        days_behind: Number of days behind to fetch (default 1 = yesterday's scores)
+    """
     if league not in LEAGUE_ENDPOINTS:
         return []
 
     endpoint = f"{LEAGUE_ENDPOINTS[league]}/scoreboard"
 
+    tz = ZoneInfo(user_timezone)
+    today = datetime.now(tz).date()
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(endpoint)
-            response.raise_for_status()
-            data = response.json()
+            all_events = []
+
+            # Fetch previous days to get yesterday's scores (e.g., late-night games)
+            for day_offset in range(days_behind, 0, -1):
+                target_date = today - timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y%m%d")
+                response = await client.get(endpoint, params={"dates": date_str})
+                response.raise_for_status()
+                data = response.json()
+                all_events.extend(data.get("events", []))
+
+            # Fetch today and upcoming days for all leagues
+            for day_offset in range(days_ahead + 1):
+                target_date = today + timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y%m%d")
+                response = await client.get(endpoint, params={"dates": date_str})
+                response.raise_for_status()
+                data = response.json()
+                all_events.extend(data.get("events", []))
 
         games = []
-        events = data.get("events", [])
+        events = all_events
 
         for event in events:
             competitions = event.get("competitions", [])
@@ -149,14 +180,14 @@ async def fetch_espn_scoreboard(league: str) -> list[GameScore]:
 def filter_games_for_briefing(
     games: list[GameScore],
     user_timezone: str = "America/New_York",
-    max_days_future: int = 5,
+    max_days_future: int = 1,
 ) -> list[GameScore]:
     """Filter out games too far in the future.
 
     Args:
         games: List of games from ESPN
         user_timezone: User's timezone string
-        max_days_future: Maximum days ahead to include scheduled games
+        max_days_future: Maximum days ahead to include scheduled games (default 1 = today and tomorrow)
 
     Returns:
         Filtered list of games within the time window
@@ -164,11 +195,7 @@ def filter_games_for_briefing(
     if not games:
         return []
 
-    try:
-        tz = ZoneInfo(user_timezone)
-    except Exception:
-        tz = ZoneInfo("America/New_York")
-
+    tz = ZoneInfo(user_timezone)
     now_local = datetime.now(tz)
     today = now_local.date()
     yesterday = today - timedelta(days=1)
@@ -252,22 +279,42 @@ async def fetch_espn_news(league: str, limit: int = 5) -> list[SportsNews]:
 async def get_scores_for_leagues(
     leagues: list[str],
     user_timezone: str = "America/New_York",
+    favorite_teams_only: bool = False,
+    favorite_teams: list[dict] = None,
 ) -> dict[str, list[GameScore]]:
     """Fetch scores for multiple leagues.
 
     Args:
         leagues: List of league identifiers
         user_timezone: User's timezone for filtering
+        favorite_teams_only: If True, only return games involving favorite teams
+        favorite_teams: List of favorite team dicts with 'name' and 'league' keys
 
     Returns:
         Dict mapping league name to list of filtered games
     """
     results = {}
 
+    # Build set of favorite team names for quick lookup
+    team_names = set()
+    if favorite_teams:
+        team_names = set(t.get("name", "").lower() for t in favorite_teams if t.get("name"))
+
     for league in leagues:
         league_key = league.lower()
-        scores = await fetch_espn_scoreboard(league_key)
+        scores = await fetch_espn_scoreboard(league_key, user_timezone)
         filtered = filter_games_for_briefing(scores, user_timezone)
+
+        # If favorite_teams_only, filter to games involving favorite teams
+        if favorite_teams_only and team_names:
+            filtered = [
+                game for game in filtered
+                if any(
+                    team_name in game.home_team.lower() or team_name in game.away_team.lower()
+                    for team_name in team_names
+                )
+            ]
+
         results[league_key] = filtered
 
     return results
@@ -310,7 +357,7 @@ async def get_team_updates(
 
     # Fetch scoreboards for relevant leagues
     for league in leagues_to_check:
-        scores = await fetch_espn_scoreboard(league)
+        scores = await fetch_espn_scoreboard(league, user_timezone)
         # Filter first, then check for team matches
         filtered_scores = filter_games_for_briefing(scores, user_timezone)
 
@@ -336,11 +383,7 @@ def format_sports_for_agent(
     favorite_teams: list[dict] = None,
 ) -> str:
     """Format sports data for the Claude agent."""
-    try:
-        tz = ZoneInfo(user_timezone)
-    except Exception:
-        tz = ZoneInfo("America/New_York")
-
+    tz = ZoneInfo(user_timezone)
     today = datetime.now(tz).date()
     lines = ["# Sports Update\n"]
 
