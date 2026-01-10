@@ -17,6 +17,7 @@ from src.api.website import router as website_router
 from src.config import get_settings
 from src.storage.database import init_db
 from src.scheduler import setup_scheduler
+from src.version import VERSION
 
 
 # Global scheduler reference
@@ -78,7 +79,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Morning Drive",
     description="AI-powered personalized morning briefing service",
-    version="0.1.0",
+    version=VERSION,
     lifespan=lifespan,
     docs_url=None,  # Disable default docs, we use custom template
     redoc_url=None,  # Disable ReDoc
@@ -106,7 +107,7 @@ app.include_router(website_router)
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "morning-drive"}
+    return {"status": "healthy", "service": "morning-drive", "version": VERSION}
 
 
 if __name__ == "__main__":
