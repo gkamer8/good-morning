@@ -188,7 +188,8 @@ async def assemble_briefing_audio(
     if music_audio_path and music_audio_path.exists():
         try:
             print(f"[Mixer] Adding music from: {music_audio_path}")
-            music_audio = PydubSegment.from_mp3(str(music_audio_path))
+            # Use from_file() to auto-detect format (supports mp3, ogg, wav, etc.)
+            music_audio = PydubSegment.from_file(str(music_audio_path))
 
             # Normalize and add fade effects
             music_audio = normalize_audio(music_audio, target_dbfs=-20.0)

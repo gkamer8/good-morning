@@ -932,6 +932,18 @@ async def admin_scheduler_page(
     for b in briefings_raw:
         errors = b.generation_errors if b.generation_errors else []
         rendered = b.rendered_prompts if b.rendered_prompts else {}
+        segments_meta = b.segments_metadata if b.segments_metadata else {}
+
+        # Include music_error from segments_metadata if present
+        music_error = segments_meta.get("music_error")
+        if music_error:
+            errors = errors + [{
+                "error_type": "Music Error",
+                "segment": "music",
+                "message": music_error,
+                "timestamp": b.created_at.strftime("%Y-%m-%d %H:%M"),
+            }]
+
         briefings.append({
             "id": b.id,
             "title": b.title,

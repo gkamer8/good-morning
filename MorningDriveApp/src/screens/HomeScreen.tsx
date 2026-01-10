@@ -36,11 +36,18 @@ export function HomeScreen() {
     currentBriefing,
     setCurrentBriefing,
     isGenerating,
-    setGenerating,
+    generatingBriefingId,
+    startGeneration,
+    stopGeneration,
     setGenerationProgress,
     generationProgress,
     generationStep,
   } = useBriefingsStore();
+
+  // Ref to track the polling timeout so we can cancel it
+  const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref to track if polling should continue (prevents stale closures)
+  const shouldPollRef = useRef(false);
 
   const { isPlaying } = usePlayerState();
 
@@ -113,13 +120,30 @@ export function HomeScreen() {
   const generateMutation = useMutation({
     mutationFn: () => api.generateBriefing(),
     onSuccess: async (data) => {
-      setGenerating(true);
+      // Use startGeneration with briefing ID instead of setGenerating
+      startGeneration(data.briefing_id);
       pollGenerationStatus(data.briefing_id);
     },
     onError: (error) => {
       Alert.alert('Error', `Failed to start generation: ${error.message}`);
     },
   });
+
+  // Stop polling and clean up
+  const cancelPolling = useCallback(() => {
+    shouldPollRef.current = false;
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current);
+      pollingTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      cancelPolling();
+    };
+  }, [cancelPolling]);
 
   // Handle user's decision on an error
   const handleErrorDecision = useCallback(
@@ -128,7 +152,8 @@ export function HomeScreen() {
       try {
         await api.resolveBriefingError(briefingId, actionId, decision);
         if (decision === 'cancel') {
-          setGenerating(false);
+          cancelPolling();
+          stopGeneration();
           Alert.alert('Cancelled', 'Briefing generation was cancelled.');
         }
       } catch (error) {
@@ -136,7 +161,7 @@ export function HomeScreen() {
         Alert.alert('Error', 'Failed to send decision to server.');
       }
     },
-    [setGenerating]
+    [stopGeneration, cancelPolling]
   );
 
   // Show error dialog for user confirmation
@@ -184,16 +209,41 @@ export function HomeScreen() {
     [handleErrorDecision, errorDialogShowing]
   );
 
-  // Poll generation status
+  // Poll generation status with proper cancellation and ID validation
   const pollGenerationStatus = useCallback(
-    async (briefingId: number) => {
+    (briefingId: number) => {
+      // Cancel any existing polling loop before starting a new one
+      cancelPolling();
+      shouldPollRef.current = true;
+
       const checkStatus = async () => {
+        // Check if we should still be polling
+        if (!shouldPollRef.current) {
+          console.log(`[Polling] Stopped for briefing ${briefingId} (shouldPoll=false)`);
+          return;
+        }
+
+        // Validate that we're still polling for the correct briefing
+        const currentGeneratingId = useBriefingsStore.getState().generatingBriefingId;
+        if (currentGeneratingId !== briefingId) {
+          console.log(`[Polling] Stopped for briefing ${briefingId} (current is ${currentGeneratingId})`);
+          return;
+        }
+
         try {
           const status = await api.getBriefingStatus(briefingId);
+
+          // Double-check we're still the active generation after the async call
+          if (!shouldPollRef.current || useBriefingsStore.getState().generatingBriefingId !== briefingId) {
+            console.log(`[Polling] Ignoring stale response for briefing ${briefingId}`);
+            return;
+          }
+
           setGenerationProgress(status.progress_percent, status.current_step || null);
 
           if (status.status === 'completed' || status.status === 'completed_with_warnings') {
-            setGenerating(false);
+            cancelPolling();
+            stopGeneration();
             queryClient.invalidateQueries({ queryKey: ['briefings'] });
 
             if (status.status === 'completed_with_warnings' && status.errors?.length > 0) {
@@ -206,28 +256,33 @@ export function HomeScreen() {
               Alert.alert('Success', 'Your briefing is ready to play!');
             }
           } else if (status.status === 'failed') {
-            setGenerating(false);
+            cancelPolling();
+            stopGeneration();
             const errorMsg = status.errors?.length > 0
               ? status.errors[status.errors.length - 1].message
               : status.error || 'Generation failed';
             Alert.alert('Error', errorMsg);
           } else if (status.status === 'cancelled') {
-            setGenerating(false);
+            cancelPolling();
+            stopGeneration();
           } else if (status.status === 'awaiting_confirmation' && status.pending_action) {
             showErrorDialog(briefingId, status.pending_action);
-            setTimeout(checkStatus, 2000);
+            pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
           } else {
-            setTimeout(checkStatus, 3000);
+            pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
           }
         } catch (error) {
           console.error('Error polling status:', error);
-          setTimeout(checkStatus, 5000);
+          // Only continue polling if we should still be polling
+          if (shouldPollRef.current && useBriefingsStore.getState().generatingBriefingId === briefingId) {
+            pollingTimeoutRef.current = setTimeout(checkStatus, 5000);
+          }
         }
       };
 
       checkStatus();
     },
-    [setGenerating, setGenerationProgress, queryClient, showErrorDialog]
+    [stopGeneration, cancelPolling, setGenerationProgress, queryClient, showErrorDialog]
   );
 
   const handlePlayBriefing = async (briefing: Briefing) => {
@@ -260,7 +315,21 @@ export function HomeScreen() {
         {
           text: 'Cancel',
           style: 'destructive',
-          onPress: () => setGenerating(false),
+          onPress: async () => {
+            const briefingId = generatingBriefingId;
+            // Stop polling immediately
+            cancelPolling();
+            stopGeneration();
+
+            // Tell the backend to cancel (best effort, don't wait for response)
+            if (briefingId) {
+              try {
+                await api.cancelBriefing(briefingId);
+              } catch (error) {
+                console.log('Failed to cancel on server (may have already finished):', error);
+              }
+            }
+          },
         },
       ]
     );
@@ -329,48 +398,50 @@ export function HomeScreen() {
       >
         {/* Generation Progress Card - only shown when generating */}
         {(isGenerating || generateMutation.isPending) && (
-          <Animated.View
-            style={[
-              styles.generationCard,
-              { transform: [{ scale: pulseAnim }] }
-            ]}
-          >
-            <View style={styles.generationHeader}>
-              <View style={styles.generationTitleRow}>
-                <Icon name="sparkles" size={20} color="#4f46e5" />
-                <Text style={styles.generationTitle}>Creating Your Briefing</Text>
+          <View style={styles.generationCardWrapper}>
+            <Animated.View
+              style={[
+                styles.generationCard,
+                { transform: [{ scale: pulseAnim }] }
+              ]}
+            >
+              <View style={styles.generationHeader}>
+                <View style={styles.generationTitleRow}>
+                  <Icon name="sparkles" size={20} color="#4f46e5" />
+                  <Text style={styles.generationTitle}>Creating Your Briefing</Text>
+                </View>
+                <TouchableOpacity onPress={handleCancelGeneration}>
+                  <Icon name="close-circle" size={24} color="#999" />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity onPress={handleCancelGeneration}>
-                <Icon name="close-circle" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
 
-            <Text style={styles.generationStep} numberOfLines={1}>
-              {generationStep || 'Starting...'}
-            </Text>
-
-            {/* Smooth animated progress bar */}
-            <View style={styles.progressBarContainer}>
-              <Animated.View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: animatedProgress.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0%', '100%'],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-
-            <View style={styles.generationFooter}>
-              <ActivityIndicator size="small" color="#4f46e5" />
-              <Text style={styles.generationPercent}>
-                {Math.round(generationProgress)}% complete
+              <Text style={styles.generationStep} numberOfLines={1}>
+                {generationStep || 'Starting...'}
               </Text>
-            </View>
-          </Animated.View>
+
+              {/* Smooth animated progress bar */}
+              <View style={styles.progressBarContainer}>
+                <Animated.View
+                  style={[
+                    styles.progressBarFill,
+                    {
+                      width: animatedProgress.interpolate({
+                        inputRange: [0, 100],
+                        outputRange: ['0%', '100%'],
+                      }),
+                    },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.generationFooter}>
+                <ActivityIndicator size="small" color="#4f46e5" />
+                <Text style={styles.generationPercent}>
+                  {Math.round(generationProgress)}% complete
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
         )}
 
         {/* Latest Briefing */}
@@ -514,11 +585,14 @@ const styles = StyleSheet.create({
   headerButtonDisabled: {
     opacity: 0.5,
   },
-  // Generation Progress Card
+  // Generation Progress Card wrapper - provides space for scale animation
+  generationCardWrapper: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 20,
+  },
   generationCard: {
     backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginBottom: 16,
     borderRadius: 16,
     padding: 16,
     shadowColor: '#4f46e5',

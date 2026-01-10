@@ -176,11 +176,19 @@ async def get_briefing_status(
         raise HTTPException(status_code=404, detail="Briefing not found")
 
     # Determine progress based on status
+    # Percentages represent progress at START of each phase (what user sees during that phase):
+    # - gathering_content: ~3s → show 2% (just started)
+    # - writing_script: ~15s → show 8% (content done)
+    # - researching_stories: ~20s → show 25% (script done)
+    # - generating_audio: ~45s → show 50% (longest phase, halfway through total)
+    # - finalizing: ~2s → show 95% (audio done, almost complete)
     progress_map = {
         "pending": (0, "Waiting to start..."),
-        "gathering_content": (25, "Gathering news, sports, and weather..."),
-        "writing_script": (50, "Writing radio script..."),
-        "generating_audio": (75, "Generating audio..."),
+        "gathering_content": (2, "Gathering news, sports, and weather..."),
+        "writing_script": (8, "Writing radio script..."),
+        "researching_stories": (25, "Researching stories in depth..."),
+        "generating_audio": (50, "Generating audio..."),
+        "finalizing": (95, "Finalizing your briefing..."),
         "awaiting_confirmation": (None, "Waiting for your decision..."),  # Progress stays where it was
         "completed": (100, "Complete!"),
         "completed_with_warnings": (100, "Complete (with warnings)"),
@@ -271,6 +279,41 @@ async def resolve_briefing_error(
 
     else:
         raise HTTPException(status_code=400, detail=f"Invalid decision: {resolution.decision}")
+
+
+@router.post("/briefings/{briefing_id}/cancel")
+async def cancel_briefing(
+    briefing_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Cancel a briefing that is currently generating.
+
+    This marks the briefing as cancelled in the database. The background task
+    will check this status periodically and stop processing if cancelled.
+    """
+    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    briefing = result.scalar_one_or_none()
+
+    if not briefing:
+        raise HTTPException(status_code=404, detail="Briefing not found")
+
+    # Only allow cancelling briefings that are in progress
+    in_progress_statuses = {
+        "pending", "gathering_content", "writing_script", "researching_stories",
+        "generating_audio", "assembling_audio", "finalizing", "awaiting_confirmation"
+    }
+
+    if briefing.status not in in_progress_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel briefing with status: {briefing.status}"
+        )
+
+    briefing.status = "cancelled"
+    briefing.pending_action = None  # Clear any pending action
+    await session.commit()
+
+    return {"status": "cancelled", "briefing_id": briefing_id}
 
 
 @router.delete("/briefings/{briefing_id}")

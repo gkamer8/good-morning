@@ -46,6 +46,7 @@ interface BriefingsState {
   currentBriefing: Briefing | null;
   currentSegment: BriefingSegment | null;
   isGenerating: boolean;
+  generatingBriefingId: number | null;  // Track WHICH briefing is generating
   generationProgress: number;
   generationStep: string | null;
   setBriefings: (briefings: Briefing[]) => void;
@@ -54,6 +55,8 @@ interface BriefingsState {
   setCurrentBriefing: (briefing: Briefing | null) => void;
   setCurrentSegment: (segment: BriefingSegment | null) => void;
   setGenerating: (isGenerating: boolean) => void;
+  startGeneration: (briefingId: number) => void;  // Start generation with specific ID
+  stopGeneration: () => void;  // Stop generation and clear ID
   setGenerationProgress: (progress: number, step: string | null) => void;
 }
 
@@ -64,6 +67,7 @@ export const useBriefingsStore = create<BriefingsState>()(
       currentBriefing: null,
       currentSegment: null,
       isGenerating: false,
+      generatingBriefingId: null,
       generationProgress: 0,
       generationStep: null,
       setBriefings: (briefings) => set({ briefings }),
@@ -82,6 +86,20 @@ export const useBriefingsStore = create<BriefingsState>()(
           isGenerating,
           generationProgress: isGenerating ? 0 : 0,
           generationStep: isGenerating ? 'Starting...' : null,
+        }),
+      startGeneration: (briefingId) =>
+        set({
+          isGenerating: true,
+          generatingBriefingId: briefingId,
+          generationProgress: 0,
+          generationStep: 'Starting...',
+        }),
+      stopGeneration: () =>
+        set({
+          isGenerating: false,
+          generatingBriefingId: null,
+          generationProgress: 0,
+          generationStep: null,
         }),
       setGenerationProgress: (generationProgress, generationStep) =>
         set({ generationProgress, generationStep }),

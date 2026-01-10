@@ -115,7 +115,7 @@ class SettingsBase(BaseModel):
 
     # News
     news_topics: list[str] = Field(
-        default=["technology", "business", "world"],
+        default=["top", "technology", "business"],
         description="News categories to include",
     )
     news_sources: list[str] = Field(

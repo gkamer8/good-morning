@@ -238,13 +238,16 @@ async def gather_all_content(
 
     # Prepare tasks
     async def fetch_news():
-        articles = await get_top_news(
+        result = await get_top_news(
             sources=settings.news_sources or ["bbc", "npr", "nyt"],
             topics=settings.news_topics or ["top", "technology", "business"],
             limit=10,
             stories_per_source=limits.news_stories_per_source,
         )
-        return format_news_for_agent(articles)
+        return {
+            "text": format_news_for_agent(result.articles),
+            "errors": result.errors,
+        }
 
     async def fetch_sports():
         leagues = settings.sports_leagues or ["nfl", "mlb", "nhl"]
@@ -329,11 +332,14 @@ async def gather_all_content(
     )
 
     # Handle any errors gracefully
+    # News result is a dict with "text" and "errors" keys
+    news_result = results[0] if not isinstance(results[0], Exception) else {"text": "News unavailable.", "errors": []}
     # Music result is a dict with "text", "piece", and "audio_path" keys
     music_result = results[5] if not isinstance(results[5], Exception) else {"text": "", "piece": None, "audio_path": None}
 
     content = {
-        "news": results[0] if not isinstance(results[0], Exception) else "News unavailable.",
+        "news": news_result.get("text", "News unavailable.") if isinstance(news_result, dict) else "News unavailable.",
+        "news_errors": news_result.get("errors", []) if isinstance(news_result, dict) else [],
         "sports": results[1] if not isinstance(results[1], Exception) else "Sports unavailable.",
         "weather": results[2] if not isinstance(results[2], Exception) else "Weather unavailable.",
         "fun": results[3] if not isinstance(results[3], Exception) else "",
@@ -534,6 +540,20 @@ async def update_briefing_status(briefing_id: int, status: str):
             await session.commit()
 
 
+async def is_briefing_cancelled(briefing_id: int) -> bool:
+    """Check if a briefing has been cancelled.
+
+    Call this at key checkpoints during generation to allow early exit
+    when the user cancels from the app.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(Briefing.status).where(Briefing.id == briefing_id)
+        )
+        status = result.scalar_one_or_none()
+        return status == "cancelled"
+
+
 async def add_generation_error(
     briefing_id: int,
     phase: str,
@@ -702,6 +722,11 @@ async def generate_briefing_task(
         prompt_renderer = PromptRenderer()
 
         # Phase 1: Gather content
+        # Check for cancellation before starting
+        if await is_briefing_cancelled(briefing_id):
+            print(f"[Briefing {briefing_id}] Cancelled before gathering content")
+            return
+
         await update_briefing_status(briefing_id, "gathering_content")
         include_music_enabled = user_settings.include_music or False
 
@@ -727,12 +752,26 @@ async def generate_briefing_task(
                 )
 
         # Check for content issues
-        if content.get("news") == "News unavailable.":
+        if content.get("news") in ("News unavailable.", "No news articles available."):
             await add_generation_error(
                 briefing_id, "gathering_content", "news",
                 "News sources returned no content",
                 recoverable=True,
                 fallback_description="Briefing will skip news segment"
+            )
+
+        # Check for partial news fetch failures (some feeds failed but we got some articles)
+        news_errors = content.get("news_errors", [])
+        if news_errors:
+            failed_sources = [f"{e.source}/{e.category}" for e in news_errors]
+            error_details = "; ".join([f"{e.source}/{e.category}: {e.error_message[:50]}" for e in news_errors[:3]])
+            if len(news_errors) > 3:
+                error_details += f" ... and {len(news_errors) - 3} more"
+            await add_generation_error(
+                briefing_id, "gathering_content", "news_feeds",
+                f"Some news feeds failed to load: {error_details}",
+                recoverable=True,
+                fallback_description=f"Briefing may have fewer news stories. Failed: {', '.join(failed_sources[:5])}"
             )
 
         # Check for weather failures - either exception case or empty forecasts case
@@ -754,6 +793,11 @@ async def generate_briefing_task(
             )
 
         # Phase 2: Generate script with Claude
+        # Check for cancellation before expensive Claude API call
+        if await is_briefing_cancelled(briefing_id):
+            print(f"[Briefing {briefing_id}] Cancelled before writing script")
+            return
+
         await update_briefing_status(briefing_id, "writing_script")
         segment_order = user_settings.segment_order or ["news", "sports", "weather", "fun"]
         writing_style = getattr(user_settings, 'writing_style', None) or DEFAULT_WRITING_STYLE
@@ -798,6 +842,12 @@ async def generate_briefing_task(
 
         # Post-process: expand any [DEEP_DIVE] tags with web research
         if deep_dive_count > 0:
+            # Check for cancellation before potentially slow web research
+            if await is_briefing_cancelled(briefing_id):
+                print(f"[Briefing {briefing_id}] Cancelled before deep dive research")
+                return
+
+            await update_briefing_status(briefing_id, "researching_stories")
             print(f"[Briefing {briefing_id}] Processing deep dive tags...")
             try:
                 script = await process_deep_dive_tags(
@@ -808,13 +858,18 @@ async def generate_briefing_task(
             except Exception as e:
                 print(f"[Briefing {briefing_id}] Deep dive processing error: {e}")
                 await add_generation_error(
-                    briefing_id, "writing_script", "deep_dive",
+                    briefing_id, "researching_stories", "deep_dive",
                     f"Deep dive research failed: {str(e)}",
                     recoverable=True,
                     fallback_description="Deep dive stories will use basic coverage"
                 )
 
         # Phase 3: Generate audio
+        # Check for cancellation before TTS generation
+        if await is_briefing_cancelled(briefing_id):
+            print(f"[Briefing {briefing_id}] Cancelled before generating audio")
+            return
+
         await update_briefing_status(briefing_id, "generating_audio")
         tts_provider = getattr(user_settings, 'tts_provider', None) or "elevenlabs"
         voice_id = user_settings.voice_id
@@ -904,7 +959,11 @@ async def generate_briefing_task(
                 fallback_description="Briefing will skip music segment"
             )
 
-        # Phase 4: Assemble final audio
+        # Phase 4: Assemble final audio (continues under generating_audio status - assembly is fast)
+        # Check for cancellation before assembly
+        if await is_briefing_cancelled(briefing_id):
+            print(f"[Briefing {briefing_id}] Cancelled before assembling audio")
+            return
         try:
             final_audio_path, duration_seconds, segments_metadata = await assemble_briefing_audio(
                 briefing_id=briefing_id,
@@ -932,6 +991,14 @@ async def generate_briefing_task(
                 include_transitions=user_settings.include_transitions,
                 music_audio_path=music_audio_path,
             )
+
+        # Phase 5: Finalize briefing
+        # Final cancellation check before saving
+        if await is_briefing_cancelled(briefing_id):
+            print(f"[Briefing {briefing_id}] Cancelled before finalizing")
+            return
+
+        await update_briefing_status(briefing_id, "finalizing")
 
         # Generate a descriptive title based on the script content
         briefing_title = await generate_briefing_title(

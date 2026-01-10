@@ -24,8 +24,92 @@ class NewsArticle:
     author: Optional[str] = None
 
 
+@dataclass
+class NewsFetchError:
+    """An error that occurred during news fetching."""
+
+    source: str
+    category: str
+    error_message: str
+
+
+@dataclass
+class NewsFetchResult:
+    """Result of fetching news, including articles and any errors."""
+
+    articles: list[NewsArticle]
+    errors: list[NewsFetchError]
+
+    @property
+    def has_errors(self) -> bool:
+        return len(self.errors) > 0
+
+    @property
+    def partial_failure(self) -> bool:
+        """True if some feeds failed but we still got articles."""
+        return self.has_errors and len(self.articles) > 0
+
+    @property
+    def total_failure(self) -> bool:
+        """True if all feeds failed and we got no articles."""
+        return self.has_errors and len(self.articles) == 0
+
+
 # User-Agent header to avoid 403 errors from some RSS servers
 USER_AGENT = "MorningDrive/1.0 (Personal News Aggregator)"
+
+# Mapping from NewsAPI source names to normalized keys (matching RSS_FEEDS keys)
+# This ensures per-source limiting works correctly across both sources
+NEWSAPI_SOURCE_MAPPING = {
+    "bbc news": "bbc",
+    "bbc": "bbc",
+    "bbc.com": "bbc",
+    "npr": "npr",
+    "npr news": "npr",
+    "the new york times": "nyt",
+    "new york times": "nyt",
+    "nytimes": "nyt",
+    "nyt": "nyt",
+    "techcrunch": "techcrunch",
+    "ars technica": "arstechnica",
+    "hacker news": "hackernews",
+}
+
+
+def normalize_source_name(source: str) -> str:
+    """Normalize source name to a canonical key for per-source limiting."""
+    source_lower = source.lower().strip()
+    return NEWSAPI_SOURCE_MAPPING.get(source_lower, source_lower)
+
+
+# Valid NewsAPI categories - NewsAPI only accepts these specific values
+# See: https://newsapi.org/docs/endpoints/top-headlines
+NEWSAPI_VALID_CATEGORIES = {"business", "entertainment", "general", "health", "science", "sports", "technology"}
+
+# Mapping from our topic names to NewsAPI categories
+NEWSAPI_TOPIC_MAPPING = {
+    "top": "general",
+    "world": "general",  # NewsAPI doesn't have a world category
+    "business": "business",
+    "technology": "technology",
+    "science": "science",
+    "health": "health",
+    "entertainment": "entertainment",
+    "sports": "sports",
+}
+
+
+def get_newsapi_category(topic: str) -> Optional[str]:
+    """Map our topic name to a valid NewsAPI category, or None if invalid."""
+    topic_lower = topic.lower().strip()
+    # First check our mapping
+    if topic_lower in NEWSAPI_TOPIC_MAPPING:
+        return NEWSAPI_TOPIC_MAPPING[topic_lower]
+    # If it's already a valid category, use it directly
+    if topic_lower in NEWSAPI_VALID_CATEGORIES:
+        return topic_lower
+    # Invalid topic for NewsAPI
+    return None
 
 # RSS Feed URLs for major news sources
 RSS_FEEDS = {
@@ -72,8 +156,12 @@ RSS_FEEDS = {
 }
 
 
-async def fetch_rss_feed(url: str, source: str, category: str) -> list[NewsArticle]:
-    """Fetch and parse an RSS feed."""
+async def fetch_rss_feed(url: str, source: str, category: str) -> tuple[list[NewsArticle], Optional[NewsFetchError]]:
+    """Fetch and parse an RSS feed.
+
+    Returns:
+        Tuple of (articles, error) where error is None on success.
+    """
     try:
         headers = {"User-Agent": USER_AGENT}
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
@@ -113,19 +201,24 @@ async def fetch_rss_feed(url: str, source: str, category: str) -> list[NewsArtic
                 )
             )
 
-        return articles
+        return articles, None
 
     except Exception as e:
-        print(f"Error fetching RSS feed {url}: {e}")
-        return []
+        error_msg = str(e)
+        print(f"Error fetching RSS feed {url}: {error_msg}")
+        return [], NewsFetchError(source=source, category=category, error_message=error_msg)
 
 
 async def fetch_news_from_rss(
     sources: list[str],
     topics: list[str],
     limit_per_source: int = 5,
-) -> list[NewsArticle]:
-    """Fetch news from multiple RSS sources and topics."""
+) -> tuple[list[NewsArticle], list[NewsFetchError]]:
+    """Fetch news from multiple RSS sources and topics.
+
+    Returns:
+        Tuple of (articles, errors) where errors is a list of any feed failures.
+    """
     tasks = []
 
     for source in sources:
@@ -143,13 +236,24 @@ async def fetch_news_from_rss(
     # Fetch all feeds concurrently
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Flatten and deduplicate
+    # Flatten and deduplicate, collecting errors
     all_articles = []
+    all_errors = []
     seen_titles = set()
 
     for result in results:
-        if isinstance(result, list):
-            for article in result:
+        if isinstance(result, Exception):
+            # asyncio.gather returned an exception (shouldn't happen with our error handling)
+            all_errors.append(NewsFetchError(
+                source="unknown",
+                category="unknown",
+                error_message=str(result)
+            ))
+        elif isinstance(result, tuple):
+            articles, error = result
+            if error:
+                all_errors.append(error)
+            for article in articles:
                 if article.title not in seen_titles:
                     seen_titles.add(article.title)
                     all_articles.append(article)
@@ -160,28 +264,47 @@ async def fetch_news_from_rss(
         reverse=True,
     )
 
-    return all_articles[:limit_per_source * len(sources)]
+    return all_articles[:limit_per_source * len(sources)], all_errors
 
 
 async def fetch_news_from_newsapi(
     topics: list[str],
     limit: int = 10,
-) -> list[NewsArticle]:
-    """Fetch news from NewsAPI (requires API key)."""
+) -> tuple[list[NewsArticle], list[NewsFetchError]]:
+    """Fetch news from NewsAPI (requires API key).
+
+    Returns:
+        Tuple of (articles, errors) where errors is a list of any API failures.
+    """
     settings = get_settings()
     if not settings.news_api_key:
-        return []
+        return [], []
 
     articles = []
+    errors = []
+    # Track which categories we've already fetched to avoid duplicates
+    # (e.g., both "top" and "world" map to "general")
+    fetched_categories = set()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for topic in topics:
+            # Map our topic to a valid NewsAPI category
+            category = get_newsapi_category(topic)
+            if category is None:
+                print(f"Skipping NewsAPI fetch for invalid category: {topic}")
+                continue
+
+            # Skip if we've already fetched this category
+            if category in fetched_categories:
+                continue
+            fetched_categories.add(category)
+
             try:
                 response = await client.get(
                     "https://newsapi.org/v2/top-headlines",
                     params={
                         "apiKey": settings.news_api_key,
-                        "category": topic,
+                        "category": category,
                         "language": "en",
                         "pageSize": limit,
                     },
@@ -206,15 +329,17 @@ async def fetch_news_from_newsapi(
                             source=item.get("source", {}).get("name", "NewsAPI"),
                             url=item.get("url", ""),
                             published=published,
-                            category=topic,
+                            category=topic,  # Keep original topic for display
                             author=item.get("author"),
                         )
                     )
 
             except Exception as e:
-                print(f"Error fetching from NewsAPI for {topic}: {e}")
+                error_msg = str(e)
+                print(f"Error fetching from NewsAPI for {topic} (category={category}): {error_msg}")
+                errors.append(NewsFetchError(source="newsapi", category=topic, error_message=error_msg))
 
-    return articles
+    return articles, errors
 
 
 async def get_top_news(
@@ -222,7 +347,7 @@ async def get_top_news(
     topics: list[str] = ["top", "world", "technology", "business"],
     limit: int = 15,
     stories_per_source: Optional[int] = None,
-) -> list[NewsArticle]:
+) -> NewsFetchResult:
     """Get top news stories from configured sources.
 
     This is the main entry point for the news agent.
@@ -232,12 +357,19 @@ async def get_top_news(
         topics: Topics/categories to include
         limit: Total limit on articles returned
         stories_per_source: If set, limit to N stories per source (most recent first, no repeats)
+
+    Returns:
+        NewsFetchResult containing articles and any errors that occurred during fetching.
     """
+    all_errors = []
+
     # Fetch from RSS (always available)
-    rss_articles = await fetch_news_from_rss(sources, topics, limit_per_source=5)
+    rss_articles, rss_errors = await fetch_news_from_rss(sources, topics, limit_per_source=5)
+    all_errors.extend(rss_errors)
 
     # Optionally supplement with NewsAPI
-    newsapi_articles = await fetch_news_from_newsapi(topics, limit=5)
+    newsapi_articles, newsapi_errors = await fetch_news_from_newsapi(topics, limit=5)
+    all_errors.extend(newsapi_errors)
 
     # Combine and deduplicate
     all_articles = rss_articles + newsapi_articles
@@ -262,13 +394,18 @@ async def get_top_news(
         source_counts: dict[str, int] = {}
         filtered_articles = []
         for article in unique_articles:
-            source_key = article.source.lower()
+            # Use normalized source name to handle NewsAPI vs RSS differences
+            # (e.g., "BBC News" and "bbc" should be treated as the same source)
+            source_key = normalize_source_name(article.source)
             if source_counts.get(source_key, 0) < stories_per_source:
                 filtered_articles.append(article)
                 source_counts[source_key] = source_counts.get(source_key, 0) + 1
         unique_articles = filtered_articles
 
-    return unique_articles[:limit]
+    return NewsFetchResult(
+        articles=unique_articles[:limit],
+        errors=all_errors,
+    )
 
 
 def format_news_for_agent(articles: list[NewsArticle]) -> str:

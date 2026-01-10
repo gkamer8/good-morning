@@ -98,6 +98,10 @@ class ApiClient {
     await this.request(`/briefings/${id}`, { method: 'DELETE' });
   }
 
+  async cancelBriefing(id: number): Promise<{ status: string; briefing_id: number }> {
+    return this.request(`/briefings/${id}/cancel`, { method: 'POST' });
+  }
+
   getAudioUrl(audioPath: string): string {
     // audioPath is like "/audio/briefing_1_abc123.mp3"
     return `${this.baseUrl}${audioPath}`;
