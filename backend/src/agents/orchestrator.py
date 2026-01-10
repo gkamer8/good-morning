@@ -39,6 +39,36 @@ from src.prompts import (
 DEFAULT_WRITING_STYLE = "good_morning_america"
 
 
+def _collect_script_text(script: "BriefingScript", up_to_segment_idx: int, up_to_item_idx: int, up_to_char: int = None) -> str:
+    """Collect all script text up to a specific point."""
+    texts = []
+    for seg_idx, segment in enumerate(script.segments):
+        for item_idx, item in enumerate(segment.items):
+            if seg_idx < up_to_segment_idx:
+                texts.append(item.text)
+            elif seg_idx == up_to_segment_idx:
+                if item_idx < up_to_item_idx:
+                    texts.append(item.text)
+                elif item_idx == up_to_item_idx and up_to_char is not None:
+                    texts.append(item.text[:up_to_char])
+    return "\n\n".join(texts)
+
+
+def _collect_script_text_after(script: "BriefingScript", from_segment_idx: int, from_item_idx: int, from_char: int = None) -> str:
+    """Collect all script text after a specific point."""
+    texts = []
+    for seg_idx, segment in enumerate(script.segments):
+        for item_idx, item in enumerate(segment.items):
+            if seg_idx > from_segment_idx:
+                texts.append(item.text)
+            elif seg_idx == from_segment_idx:
+                if item_idx > from_item_idx:
+                    texts.append(item.text)
+                elif item_idx == from_item_idx and from_char is not None:
+                    texts.append(item.text[from_char:])
+    return "\n\n".join(texts)
+
+
 async def process_deep_dive_tags(
     script: "BriefingScript",
     writing_style: str,
@@ -61,8 +91,8 @@ async def process_deep_dive_tags(
 
     deep_dive_index = 0
 
-    for segment in script.segments:
-        for item in segment.items:
+    for seg_idx, segment in enumerate(script.segments):
+        for item_idx, item in enumerate(segment.items):
             matches = list(re.finditer(tag_pattern, item.text))
 
             if not matches:
@@ -78,12 +108,28 @@ async def process_deep_dive_tags(
                 deep_dive_index += 1
                 print(f"[Deep Dive {deep_dive_index}] Researching: {topic}")
 
+                # Collect surrounding script context for tone matching
+                # Get text before this tag
+                script_before = _collect_script_text(script, seg_idx, item_idx, match.start())
+                # Also include any text in this item before the tag
+                text_before_tag = new_text[:match.start()]
+                if text_before_tag.strip():
+                    script_before = script_before + "\n\n" + text_before_tag if script_before else text_before_tag
+
+                # Get text after this tag
+                text_after_tag = new_text[match.end():]
+                script_after = _collect_script_text_after(script, seg_idx, item_idx, match.end())
+                if text_after_tag.strip():
+                    script_after = text_after_tag + "\n\n" + script_after if script_after else text_after_tag
+
                 try:
                     result = await research_deep_dive(
                         topic=topic,
                         context=context,
                         url=url,
                         writing_style=writing_style,
+                        script_before=script_before,
+                        script_after=script_after,
                     )
 
                     # Store conversation in prompt_renderer for admin panel viewing
@@ -689,7 +735,9 @@ async def generate_briefing_task(
                 fallback_description="Briefing will skip news segment"
             )
 
-        if content.get("weather") == "Weather unavailable.":
+        # Check for weather failures - either exception case or empty forecasts case
+        weather_content = content.get("weather", "")
+        if weather_content in ("Weather unavailable.", "No weather data available."):
             await add_generation_error(
                 briefing_id, "gathering_content", "weather",
                 "Weather API returned no content or timed out",

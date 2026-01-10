@@ -22,6 +22,8 @@ async def research_deep_dive(
     context: str,
     url: Optional[str] = None,
     writing_style: str = "good_morning_america",
+    script_before: str = "",
+    script_after: str = "",
 ) -> DeepDiveResult:
     """Use Anthropic's built-in web tools to research and write a segment.
 
@@ -30,6 +32,8 @@ async def research_deep_dive(
         context: Original context/summary from news
         url: Optional URL of the original article
         writing_style: Writing style to match (good_morning_america, firing_line, ernest_hemingway)
+        script_before: The script text that comes before this deep dive (for context/tone matching)
+        script_after: The script text that comes after this deep dive (for continuity)
 
     Returns:
         DeepDiveResult with script text and conversation for debugging
@@ -60,28 +64,55 @@ async def research_deep_dive(
 
     style_desc = style_instructions.get(writing_style, style_instructions["good_morning_america"])
 
-    user_prompt = f"""Research this news topic and write a 2-3 minute radio script segment.
+    # Build context section showing where this fits in the show
+    context_section = ""
+    if script_before or script_after:
+        context_section = """
+IMPORTANT - SHOW CONTEXT:
+You are writing a segment that will be inserted into an existing radio show script.
+Your text must flow naturally with the surrounding content. Match the tone, style, and energy level.
+Do NOT add any introduction or greeting - the host has already transitioned into this segment.
+"""
+        if script_before:
+            # Show the last ~500 chars before the insertion point
+            before_preview = script_before[-800:] if len(script_before) > 800 else script_before
+            context_section += f"""
+=== SCRIPT BEFORE YOUR SEGMENT ===
+...{before_preview}
+[YOUR DEEP DIVE SEGMENT GOES HERE]
+"""
+        if script_after:
+            # Show the first ~300 chars after
+            after_preview = script_after[:500] if len(script_after) > 500 else script_after
+            context_section += f"""
+=== SCRIPT AFTER YOUR SEGMENT ===
+{after_preview}...
+"""
+
+    user_prompt = f"""Research this news topic and write a deep dive segment for an ongoing radio show.
 
 Topic: {topic}
 Original context: {context}
 {f'Original article URL: {url}' if url else ''}
-
+{context_section}
 Steps:
 1. Use web_search to find current information about this topic
 2. If you find promising results, use web_fetch to get full article content from the most relevant URLs
-3. Synthesize the information into an engaging, conversational radio script
+3. Write a segment that seamlessly continues the existing show
 
 Writing style: {style_desc}
 
-Requirements:
-- Write in the voice of a morning radio host
+CRITICAL Requirements:
+- You are continuing an IN-PROGRESS show - do NOT start with greetings, intros, or "let's talk about"
+- Jump directly into the substance - the host has already introduced this topic
+- Match the tone and energy of the surrounding script exactly
 - Be informative but engaging - this is radio, not a newspaper
 - Include specific facts, numbers, and quotes when available
 - Target length: 300-400 words (~2-3 minutes when spoken)
 - Do NOT include any markup, headers, or formatting - just the spoken text
-- Start directly with the content, no "Here's your segment:" preamble
+- End in a way that flows into whatever comes next
 
-Return ONLY the script text that should be spoken on air."""
+Return ONLY the script text that should be spoken on air - no preamble, no "Here's your segment"."""
 
     messages = [{"role": "user", "content": user_prompt}]
 

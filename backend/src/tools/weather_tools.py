@@ -1,10 +1,17 @@
 """Weather data fetching tools - Open-Meteo API (free, no key required)."""
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 import httpx
+
+
+# Retry configuration for weather API
+WEATHER_MAX_RETRIES = 3
+WEATHER_BASE_DELAY = 2.0  # seconds
+WEATHER_TIMEOUT = 30.0  # seconds per request
 
 
 @dataclass
@@ -110,103 +117,119 @@ async def fetch_weather(
     lon: float,
     location_name: str,
 ) -> WeatherForecast:
-    """Fetch weather data from Open-Meteo API."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Fetch current weather and forecast
-        response = await client.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": lat,
-                "longitude": lon,
-                "current": [
-                    "temperature_2m",
-                    "apparent_temperature",
-                    "relative_humidity_2m",
-                    "weather_code",
-                    "wind_speed_10m",
-                    "wind_direction_10m",
-                    "uv_index",
-                ],
-                "daily": [
-                    "weather_code",
-                    "temperature_2m_max",
-                    "temperature_2m_min",
-                    "precipitation_probability_max",
-                    "sunrise",
-                    "sunset",
-                ],
-                "temperature_unit": "celsius",
-                "wind_speed_unit": "kmh",
-                "precipitation_unit": "mm",
-                "timezone": "auto",
-                "forecast_days": 7,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
+    """Fetch weather data from Open-Meteo API with retry logic."""
+    last_exception = None
 
-    current_data = data.get("current", {})
-    daily_data = data.get("daily", {})
+    for attempt in range(WEATHER_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=WEATHER_TIMEOUT) as client:
+                # Fetch current weather and forecast
+                response = await client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": lat,
+                        "longitude": lon,
+                        "current": [
+                            "temperature_2m",
+                            "apparent_temperature",
+                            "relative_humidity_2m",
+                            "weather_code",
+                            "wind_speed_10m",
+                            "wind_direction_10m",
+                            "uv_index",
+                        ],
+                        "daily": [
+                            "weather_code",
+                            "temperature_2m_max",
+                            "temperature_2m_min",
+                            "precipitation_probability_max",
+                            "sunrise",
+                            "sunset",
+                        ],
+                        "temperature_unit": "celsius",
+                        "wind_speed_unit": "kmh",
+                        "precipitation_unit": "mm",
+                        "timezone": "auto",
+                        "forecast_days": 7,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
 
-    # Build current conditions
-    temp_c = current_data.get("temperature_2m", 0)
-    feels_c = current_data.get("apparent_temperature", temp_c)
-    wind_kmh = current_data.get("wind_speed_10m", 0)
-    wind_deg = current_data.get("wind_direction_10m", 0)
-    weather_code = current_data.get("weather_code", 0)
+            current_data = data.get("current", {})
+            daily_data = data.get("daily", {})
 
-    current = WeatherCondition(
-        location_name=location_name,
-        temperature_c=temp_c,
-        temperature_f=round(celsius_to_fahrenheit(temp_c), 1),
-        feels_like_c=feels_c,
-        feels_like_f=round(celsius_to_fahrenheit(feels_c), 1),
-        humidity=current_data.get("relative_humidity_2m", 0),
-        wind_speed_mph=round(kmh_to_mph(wind_kmh), 1),
-        wind_direction=wind_direction_from_degrees(wind_deg),
-        condition=WMO_CODES.get(weather_code, "Unknown"),
-        condition_code=weather_code,
-        precipitation_probability=daily_data.get("precipitation_probability_max", [0])[0],
-        uv_index=current_data.get("uv_index"),
-    )
+            # Build current conditions
+            temp_c = current_data.get("temperature_2m", 0)
+            feels_c = current_data.get("apparent_temperature", temp_c)
+            wind_kmh = current_data.get("wind_speed_10m", 0)
+            wind_deg = current_data.get("wind_direction_10m", 0)
+            weather_code = current_data.get("weather_code", 0)
 
-    # Build daily forecasts
-    daily_forecasts = []
-    dates = daily_data.get("time", [])
-    highs = daily_data.get("temperature_2m_max", [])
-    lows = daily_data.get("temperature_2m_min", [])
-    codes = daily_data.get("weather_code", [])
-    precip_probs = daily_data.get("precipitation_probability_max", [])
-    sunrises = daily_data.get("sunrise", [])
-    sunsets = daily_data.get("sunset", [])
-
-    for i, date in enumerate(dates):
-        if i >= 7:  # Limit to 7 days
-            break
-
-        high_c = highs[i] if i < len(highs) else 0
-        low_c = lows[i] if i < len(lows) else 0
-
-        daily_forecasts.append(
-            DailyForecast(
-                date=date,
-                high_c=high_c,
-                high_f=round(celsius_to_fahrenheit(high_c), 1),
-                low_c=low_c,
-                low_f=round(celsius_to_fahrenheit(low_c), 1),
-                condition=WMO_CODES.get(codes[i] if i < len(codes) else 0, "Unknown"),
-                precipitation_probability=precip_probs[i] if i < len(precip_probs) else 0,
-                sunrise=sunrises[i].split("T")[1] if i < len(sunrises) else "",
-                sunset=sunsets[i].split("T")[1] if i < len(sunsets) else "",
+            current = WeatherCondition(
+                location_name=location_name,
+                temperature_c=temp_c,
+                temperature_f=round(celsius_to_fahrenheit(temp_c), 1),
+                feels_like_c=feels_c,
+                feels_like_f=round(celsius_to_fahrenheit(feels_c), 1),
+                humidity=current_data.get("relative_humidity_2m", 0),
+                wind_speed_mph=round(kmh_to_mph(wind_kmh), 1),
+                wind_direction=wind_direction_from_degrees(wind_deg),
+                condition=WMO_CODES.get(weather_code, "Unknown"),
+                condition_code=weather_code,
+                precipitation_probability=daily_data.get("precipitation_probability_max", [0])[0],
+                uv_index=current_data.get("uv_index"),
             )
-        )
 
-    return WeatherForecast(
-        location_name=location_name,
-        current=current,
-        daily=daily_forecasts,
-        alerts=[],  # Open-Meteo free tier doesn't include alerts
-    )
+            # Build daily forecasts
+            daily_forecasts = []
+            dates = daily_data.get("time", [])
+            highs = daily_data.get("temperature_2m_max", [])
+            lows = daily_data.get("temperature_2m_min", [])
+            codes = daily_data.get("weather_code", [])
+            precip_probs = daily_data.get("precipitation_probability_max", [])
+            sunrises = daily_data.get("sunrise", [])
+            sunsets = daily_data.get("sunset", [])
+
+            for i, date in enumerate(dates):
+                if i >= 7:  # Limit to 7 days
+                    break
+
+                high_c = highs[i] if i < len(highs) else 0
+                low_c = lows[i] if i < len(lows) else 0
+
+                daily_forecasts.append(
+                    DailyForecast(
+                        date=date,
+                        high_c=high_c,
+                        high_f=round(celsius_to_fahrenheit(high_c), 1),
+                        low_c=low_c,
+                        low_f=round(celsius_to_fahrenheit(low_c), 1),
+                        condition=WMO_CODES.get(codes[i] if i < len(codes) else 0, "Unknown"),
+                        precipitation_probability=precip_probs[i] if i < len(precip_probs) else 0,
+                        sunrise=sunrises[i].split("T")[1] if i < len(sunrises) else "",
+                        sunset=sunsets[i].split("T")[1] if i < len(sunsets) else "",
+                    )
+                )
+
+            return WeatherForecast(
+                location_name=location_name,
+                current=current,
+                daily=daily_forecasts,
+                alerts=[],  # Open-Meteo free tier doesn't include alerts
+            )
+
+        except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.ConnectError) as e:
+            last_exception = e
+            if attempt < WEATHER_MAX_RETRIES - 1:
+                delay = WEATHER_BASE_DELAY * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
+                print(f"Weather API attempt {attempt + 1}/{WEATHER_MAX_RETRIES} failed for {location_name}: {e}. Retrying in {delay}s...")
+                await asyncio.sleep(delay)
+            else:
+                print(f"Weather API failed for {location_name} after {WEATHER_MAX_RETRIES} attempts: {e}")
+
+    # All retries exhausted
+    raise last_exception
 
 
 async def get_weather_for_locations(
