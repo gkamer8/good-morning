@@ -329,6 +329,7 @@ async def get_settings_endpoint(
         include_music=user_settings.include_music or False,
         writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
         timezone=getattr(user_settings, 'timezone', None) or "America/New_York",
+        deep_dive_enabled=getattr(user_settings, 'deep_dive_enabled', False),
         updated_at=user_settings.updated_at,
     )
 
@@ -388,6 +389,7 @@ async def update_settings(
         include_music=user_settings.include_music or False,
         writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
         timezone=getattr(user_settings, 'timezone', None) or "America/New_York",
+        deep_dive_enabled=getattr(user_settings, 'deep_dive_enabled', False),
         updated_at=user_settings.updated_at,
     )
 
