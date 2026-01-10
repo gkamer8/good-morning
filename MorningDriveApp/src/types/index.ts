@@ -81,6 +81,7 @@ export interface UserSettings {
   segment_order: string[];
   include_music: boolean;
   writing_style: string;
+  deep_dive_enabled: boolean;
   updated_at: string;
 }
 

@@ -114,6 +114,9 @@ class UserSettings(Base):
     # User's timezone for all date/time operations (IANA timezone string)
     timezone: Mapped[str] = mapped_column(String(50), default="America/New_York")
 
+    # Deep dive feature - enables 1-2 in-depth news segments with web research
+    deep_dive_enabled: Mapped[bool] = mapped_column(default=False)
+
 
 class Schedule(Base):
     """Briefing generation schedule."""
@@ -182,6 +185,7 @@ async def migrate_db():
             "writing_style": ("VARCHAR(50)", "'good_morning_america'"),
             "briefing_length": ("VARCHAR(10)", "'short'"),  # "short" or "long"
             "timezone": ("VARCHAR(50)", "'America/New_York'"),  # IANA timezone string
+            "deep_dive_enabled": ("BOOLEAN", "0"),  # Enable deep dive research for news
         },
         "briefings": {
             "generation_errors": ("TEXT", "'[]'"),  # JSON list of errors

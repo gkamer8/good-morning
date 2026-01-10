@@ -27,6 +27,7 @@ from src.tools.music_tools import (
     format_music_for_agent,
     get_music_with_audio,
 )
+from src.tools.deep_dive_agent import research_deep_dive
 from src.prompts import (
     PromptRenderer,
     get_segment_display_names,
@@ -36,6 +37,85 @@ from src.prompts import (
 
 
 DEFAULT_WRITING_STYLE = "good_morning_america"
+
+
+async def process_deep_dive_tags(
+    script: "BriefingScript",
+    writing_style: str,
+    prompt_renderer: PromptRenderer = None,
+) -> "BriefingScript":
+    """Find and replace [DEEP_DIVE] tags with researched content.
+
+    Args:
+        script: The generated script with potential [DEEP_DIVE] tags
+        writing_style: Writing style to pass to deep dive agent
+        prompt_renderer: Optional renderer to track prompts for storage
+
+    Returns:
+        Updated script with tags replaced by researched content
+    """
+    import re
+
+    # Pattern to match [DEEP_DIVE topic="..." context="..." url="..."]
+    tag_pattern = r'\[DEEP_DIVE topic="([^"]+)" context="([^"]+)"(?: url="([^"]+)")?\]'
+
+    deep_dive_index = 0
+
+    for segment in script.segments:
+        for item in segment.items:
+            matches = list(re.finditer(tag_pattern, item.text))
+
+            if not matches:
+                continue
+
+            # Process each tag in this item
+            new_text = item.text
+            for match in matches:
+                topic = match.group(1)
+                context = match.group(2)
+                url = match.group(3)  # May be None
+
+                deep_dive_index += 1
+                print(f"[Deep Dive {deep_dive_index}] Researching: {topic}")
+
+                try:
+                    result = await research_deep_dive(
+                        topic=topic,
+                        context=context,
+                        url=url,
+                        writing_style=writing_style,
+                    )
+
+                    # Store conversation in prompt_renderer for admin panel viewing
+                    if prompt_renderer:
+                        prompt_renderer.add_prompt(
+                            f"deep_dive_{deep_dive_index}_prompt",
+                            result.user_prompt
+                        )
+                        prompt_renderer.add_prompt(
+                            f"deep_dive_{deep_dive_index}_response",
+                            result.full_response
+                        )
+
+                    # Replace the tag with the generated content
+                    new_text = new_text.replace(match.group(0), result.script_text)
+                    print(f"[Deep Dive {deep_dive_index}] Generated {len(result.script_text)} chars")
+
+                except Exception as e:
+                    print(f"[Deep Dive {deep_dive_index}] Error: {e}")
+                    # On error, replace tag with fallback using the original context
+                    fallback = f"Now, about {topic}. {context}"
+                    new_text = new_text.replace(match.group(0), fallback)
+
+                    if prompt_renderer:
+                        prompt_renderer.add_prompt(
+                            f"deep_dive_{deep_dive_index}_error",
+                            str(e)
+                        )
+
+            item.text = new_text
+
+    return script
 
 
 async def generate_briefing_title(
@@ -229,6 +309,7 @@ async def generate_script_with_claude(
     user_timezone: str = None,
     prompt_renderer: PromptRenderer = None,
     news_exclusions: list[str] = None,
+    deep_dive_count: int = 0,
 ) -> BriefingScript:
     """Use Claude to generate the radio script.
 
@@ -241,6 +322,7 @@ async def generate_script_with_claude(
         user_timezone: IANA timezone string for date/time operations
         prompt_renderer: Optional renderer to track prompts for storage
         news_exclusions: Topics to exclude from news segment (not history or other segments)
+        deep_dive_count: Number of stories to mark for deep dive research (0 = disabled)
     """
     from src.api.schemas import CONTENT_LIMITS
     from src.utils.timezone import get_user_now
@@ -277,6 +359,7 @@ async def generate_script_with_claude(
         segment_flow=segment_flow,
         include_music=include_music,
         news_exclusions=news_exclusions or [],
+        deep_dive_count=deep_dive_count,
     )
 
     # Build content sections in the user-specified order
@@ -629,12 +712,21 @@ async def generate_briefing_task(
 
         news_exclusions = getattr(user_settings, 'news_exclusions', None) or []
 
+        # Calculate deep dive count based on user setting and length mode
+        deep_dive_enabled = getattr(user_settings, 'deep_dive_enabled', False)
+        if deep_dive_enabled:
+            deep_dive_count = 1 if length_mode == "short" else 2
+            print(f"[Briefing {briefing_id}] Deep dive enabled: {deep_dive_count} stories")
+        else:
+            deep_dive_count = 0
+
         try:
             script = await generate_script_with_claude(
                 content, length_mode, segment_order, include_music_enabled, writing_style,
                 user_timezone=user_timezone,
                 prompt_renderer=prompt_renderer,
                 news_exclusions=news_exclusions,
+                deep_dive_count=deep_dive_count,
             )
         except Exception as e:
             decision = await request_user_confirmation(
@@ -653,6 +745,25 @@ async def generate_briefing_task(
                     user_timezone=user_timezone,
                     prompt_renderer=prompt_renderer,
                     news_exclusions=news_exclusions,
+                    deep_dive_count=deep_dive_count,
+                )
+
+        # Post-process: expand any [DEEP_DIVE] tags with web research
+        if deep_dive_count > 0:
+            print(f"[Briefing {briefing_id}] Processing deep dive tags...")
+            try:
+                script = await process_deep_dive_tags(
+                    script,
+                    writing_style=writing_style,
+                    prompt_renderer=prompt_renderer,
+                )
+            except Exception as e:
+                print(f"[Briefing {briefing_id}] Deep dive processing error: {e}")
+                await add_generation_error(
+                    briefing_id, "writing_script", "deep_dive",
+                    f"Deep dive research failed: {str(e)}",
+                    recoverable=True,
+                    fallback_description="Deep dive stories will use basic coverage"
                 )
 
         # Phase 3: Generate audio

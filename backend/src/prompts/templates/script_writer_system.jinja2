@@ -49,6 +49,36 @@ FUN SEGMENTS GUIDELINES:
 - Include ALL "This Day in History" events provided - do not skip any
 - Read the quote of the day if provided
 - Mention all market movers if market data is included
+{% if deep_dive_count > 0 %}
+
+DEEP DIVE STORIES:
+For {{ deep_dive_count }} of the most interesting news stories, insert a deep dive tag instead of writing full coverage. These tags will be expanded with additional web research to provide in-depth coverage.
+
+Format:
+[DEEP_DIVE topic="Brief topic description" context="Original news summary" url="article_url_if_available"]
+
+Guidelines for choosing deep dive stories:
+- Choose stories that are: breaking news, complex topics, highly relevant to the listener, or would benefit from additional context
+- Place the tag where the deep dive should appear in the script flow
+- Include a natural transition before the tag (e.g., "Now, let's take a closer look at...")
+- The expanded content will be approximately 2-3 minutes of coverage
+- Do NOT write any content for the deep dive story yourself - just include the tag
+
+Example:
+{
+  "type": "news",
+  "items": [
+    {
+      "voice": "host",
+      "text": "Now, let's dig deeper into one of today's biggest stories..."
+    },
+    {
+      "voice": "host",
+      "text": "[DEEP_DIVE topic=\"Tech layoffs continue across major companies\" context=\"Several major tech companies announced layoffs this week, affecting thousands of workers\" url=\"https://example.com/article\"]"
+    }
+  ]
+}
+{% endif %}
 
 QUOTE HANDLING:
 When including quotes from real people, format them like this:

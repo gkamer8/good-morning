@@ -202,6 +202,12 @@ class SettingsBase(BaseModel):
         description="IANA timezone string (e.g., 'America/New_York', 'America/Los_Angeles', 'Europe/London')",
     )
 
+    # Deep dive feature - enables in-depth coverage of 1-2 stories with web research
+    deep_dive_enabled: bool = Field(
+        default=False,
+        description="Enable deep dive research for 1-2 news stories per briefing",
+    )
+
 
 class SettingsUpdate(SettingsBase):
     """Settings update request."""

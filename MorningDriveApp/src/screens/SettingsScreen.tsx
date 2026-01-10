@@ -927,6 +927,19 @@ export function SettingsScreen() {
               trackColor={{ false: '#e0e0e0', true: '#4f46e5' }}
             />
           </View>
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleLabelContainer}>
+              <Text style={styles.toggleLabel}>Deep Dive Stories</Text>
+              <Text style={styles.toggleHint}>In-depth coverage of 1-2 stories with web research</Text>
+            </View>
+            <Switch
+              value={settings?.deep_dive_enabled}
+              onValueChange={(deep_dive_enabled) =>
+                updateSettingsMutation.mutate({ deep_dive_enabled })
+              }
+              trackColor={{ false: '#e0e0e0', true: '#4f46e5' }}
+            />
+          </View>
         </View>
       </View>
 
