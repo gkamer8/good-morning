@@ -393,15 +393,25 @@ def format_sports_for_agent(
         if team_names:
             lines.append(f"**User's favorite teams:** {', '.join(team_names)}\n")
 
+    yesterday = today - timedelta(days=1)
+    tomorrow = today + timedelta(days=1)
+
     def format_game_time(game: GameScore) -> str:
-        """Format game time with date context."""
+        """Format game time with date context, including day of week."""
         if not game.start_time:
             return "TBD"
         local_time = game.start_time.astimezone(tz)
-        if local_time.date() == today:
-            return f"Today at {local_time.strftime('%I:%M %p')}"
+        game_date = local_time.date()
+        time_str = local_time.strftime('%I:%M %p')
+        if game_date == today:
+            return f"Today ({local_time.strftime('%A')}) at {time_str}"
+        elif game_date == yesterday:
+            return f"Yesterday ({local_time.strftime('%A')}) at {time_str}"
+        elif game_date == tomorrow:
+            return f"Tomorrow ({local_time.strftime('%A')}) at {time_str}"
         else:
-            return local_time.strftime("%b %d at %I:%M %p")
+            # Include full day name for other dates: "Sat, Jan 11 at 7:30 PM"
+            return local_time.strftime("%a, %b %d at %I:%M %p")
 
     # Featured team games first
     if team_games:
