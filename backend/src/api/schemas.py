@@ -1,9 +1,45 @@
 """Pydantic schemas for API request/response models."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# === Content Limits Configuration ===
+
+
+@dataclass
+class ContentLimits:
+    """Content limits based on briefing length mode."""
+
+    news_stories_per_source: int  # Stories per news outlet
+    history_events: int  # This Day in History events
+    finance_movers_limit: Optional[int]  # Gainers/losers each; None = all
+    sports_favorite_teams_only: bool  # True = only favorite teams
+    target_duration_minutes: int  # Target briefing duration
+    target_word_count: int  # Approximate word count
+
+
+CONTENT_LIMITS = {
+    "short": ContentLimits(
+        news_stories_per_source=1,
+        history_events=1,
+        finance_movers_limit=1,  # 1 gainer + 1 loser
+        sports_favorite_teams_only=True,
+        target_duration_minutes=5,
+        target_word_count=1000,
+    ),
+    "long": ContentLimits(
+        news_stories_per_source=2,
+        history_events=2,
+        finance_movers_limit=None,  # All (5 + 5)
+        sports_favorite_teams_only=False,
+        target_duration_minutes=10,
+        target_word_count=2000,
+    ),
+}
 
 
 # === Briefing Schemas ===
@@ -29,7 +65,11 @@ class BriefingBase(BaseModel):
 class BriefingCreate(BaseModel):
     """Request to generate a new briefing."""
 
-    override_duration_minutes: Optional[int] = None
+    override_length: Optional[str] = Field(
+        default=None,
+        description="Override briefing length: 'short' or 'long'",
+        pattern="^(short|long)$",
+    )
     override_topics: Optional[list[str]] = None
 
 
@@ -102,20 +142,18 @@ class SettingsBase(BaseModel):
     )
 
     # Preferences
-    duration_minutes: int = Field(default=10, ge=5, le=30)
+    briefing_length: str = Field(
+        default="short",
+        description="Briefing length: 'short' (~5 min) or 'long' (~10 min)",
+        pattern="^(short|long)$",
+    )
     include_intro_music: bool = True
     include_transitions: bool = True
 
-    # News exclusions - free-text topics to filter out
+    # News exclusions - free-text topics to filter out from news segment
     news_exclusions: list[str] = Field(
         default=[],
-        description="Topics to exclude from news (e.g., 'earthquakes outside US', 'celebrity gossip')",
-    )
-
-    # Priority topics - topics to emphasize and include more of
-    priority_topics: list[str] = Field(
-        default=[],
-        description="Topics to prioritize and include more of (e.g., 'tech startups', 'AI news')",
+        description="Topics to exclude from news segment (e.g., 'earthquakes outside US', 'celebrity gossip')",
     )
 
     # Voice settings
@@ -156,6 +194,12 @@ class SettingsBase(BaseModel):
     writing_style: str = Field(
         default="good_morning_america",
         description="Writing style: good_morning_america (upbeat), firing_line (intellectual wit), ernest_hemingway (terse)",
+    )
+
+    # User's timezone for all date/time operations
+    timezone: str = Field(
+        default="America/New_York",
+        description="IANA timezone string (e.g., 'America/New_York', 'America/Los_Angeles', 'Europe/London')",
     )
 
 

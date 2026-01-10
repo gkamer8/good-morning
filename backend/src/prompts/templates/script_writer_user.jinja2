@@ -1,0 +1,20 @@
+Create a {{ target_duration_minutes }}-minute morning radio briefing script for {{ date_formatted }}.
+
+Here is the content to work with (in the order you should present it):
+
+{{ content_sections }}
+{% if music_section %}
+
+{{ music_section }}
+{% endif %}
+
+Remember:
+- Target duration: {{ target_duration_minutes }} minutes (approximately {{ target_word_count }} words)
+- Follow the segment order exactly: {{ segment_flow }}
+- Prioritize the most interesting/important stories
+- Make natural transitions between topics
+- Include appropriate quotes with voice profiles
+- End with a positive, engaging sign-off
+{% if include_music %}- After the sign-off, create a brief music introduction segment{% endif %}
+
+Return ONLY the JSON script structure as specified.

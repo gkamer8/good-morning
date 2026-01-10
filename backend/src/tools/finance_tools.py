@@ -171,8 +171,14 @@ async def get_stock_quotes(symbols: list[str]) -> list[StockQuote]:
     return results
 
 
-async def get_market_movers() -> tuple[list[StockQuote], list[StockQuote]]:
+async def get_market_movers(
+    movers_limit: Optional[int] = None,
+) -> tuple[list[StockQuote], list[StockQuote]]:
     """Get top gainers and losers.
+
+    Args:
+        movers_limit: If set, return top N gainers and top N losers.
+                      None = default (5 each). "Most important" = largest absolute change.
 
     Returns:
         Tuple of (gainers, losers)
@@ -187,19 +193,35 @@ async def get_market_movers() -> tuple[list[StockQuote], list[StockQuote]]:
 
     quotes = await get_stock_quotes(watched_stocks)
 
-    # Sort by change percent
-    sorted_quotes = sorted(quotes, key=lambda q: q.change_percent, reverse=True)
+    # Sort by absolute change percent for "most important" movers
+    sorted_by_abs_change = sorted(quotes, key=lambda q: abs(q.change_percent), reverse=True)
 
-    gainers = [q for q in sorted_quotes if q.change_percent > 0][:5]
-    losers = [q for q in sorted_quotes if q.change_percent < 0][-5:][::-1]
+    # Separate gainers and losers, preserving "most important" order
+    gainers = [q for q in sorted_by_abs_change if q.change_percent > 0]
+    losers = [q for q in sorted_by_abs_change if q.change_percent < 0]
+
+    # Apply limit
+    limit = movers_limit if movers_limit is not None else 5
+    gainers = gainers[:limit]
+    losers = losers[:limit]
 
     return gainers, losers
 
 
-async def get_market_summary() -> MarketSummary:
-    """Get complete market summary."""
+async def get_market_summary(
+    movers_limit: Optional[int] = None,
+    user_timezone: str = None,
+) -> MarketSummary:
+    """Get complete market summary.
+
+    Args:
+        movers_limit: If set, limit gainers/losers to N each. None = default (5 each).
+        user_timezone: IANA timezone string for user's local time context
+    """
+    from zoneinfo import ZoneInfo
+
     indices = await get_market_indices()
-    gainers, losers = await get_market_movers()
+    gainers, losers = await get_market_movers(movers_limit=movers_limit)
 
     # Get the data date from the first index with a timestamp
     data_date = None
@@ -208,11 +230,16 @@ async def get_market_summary() -> MarketSummary:
             data_date = idx.data_time
             break
 
-    # Determine market status based on time (simplified)
-    now = datetime.now()
-    hour = now.hour
+    # Determine market status based on Eastern Time (NYSE trading hours)
+    # Markets operate 9:30 AM - 4:00 PM ET regardless of user's timezone
+    try:
+        et_tz = ZoneInfo("America/New_York")
+    except Exception:
+        et_tz = ZoneInfo("UTC")
+    now_et = datetime.now(et_tz)
+    hour = now_et.hour
 
-    if hour < 9 or (hour == 9 and now.minute < 30):
+    if hour < 9 or (hour == 9 and now_et.minute < 30):
         market_status = "pre_market"
     elif hour < 16:
         market_status = "open"
@@ -221,8 +248,8 @@ async def get_market_summary() -> MarketSummary:
     else:
         market_status = "closed"
 
-    # Weekend check
-    if now.weekday() >= 5:
+    # Weekend check (also in ET)
+    if now_et.weekday() >= 5:
         market_status = "closed"
 
     return MarketSummary(
@@ -230,7 +257,7 @@ async def get_market_summary() -> MarketSummary:
         movers_up=gainers,
         movers_down=losers,
         market_status=market_status,
-        as_of=now,
+        as_of=now_et,
         data_date=data_date,
     )
 
@@ -249,8 +276,15 @@ def format_change_percent(value: float) -> str:
     return f"{value:.2f}%"
 
 
-def format_market_for_agent(summary: MarketSummary) -> str:
-    """Format market data for the Claude agent."""
+def format_market_for_agent(summary: MarketSummary, user_timezone: str = None) -> str:
+    """Format market data for the Claude agent.
+
+    Args:
+        summary: MarketSummary object with market data
+        user_timezone: IANA timezone string for date comparison
+    """
+    from src.utils.timezone import get_user_today
+
     lines = ["# Market Summary\n"]
 
     # Market status
@@ -266,7 +300,7 @@ def format_market_for_agent(summary: MarketSummary) -> str:
     if summary.data_date:
         trading_date = summary.data_date.strftime('%A, %B %d, %Y')
         trading_time = summary.data_date.strftime('%I:%M %p ET')
-        today = datetime.now().date()
+        today = get_user_today(user_timezone)
         data_day = summary.data_date.date()
 
         if data_day == today:

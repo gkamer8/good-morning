@@ -221,10 +221,17 @@ async def get_top_news(
     sources: list[str] = ["bbc", "npr", "nyt"],
     topics: list[str] = ["top", "world", "technology", "business"],
     limit: int = 15,
+    stories_per_source: Optional[int] = None,
 ) -> list[NewsArticle]:
     """Get top news stories from configured sources.
 
     This is the main entry point for the news agent.
+
+    Args:
+        sources: News sources to fetch from
+        topics: Topics/categories to include
+        limit: Total limit on articles returned
+        stories_per_source: If set, limit to N stories per source (most recent first, no repeats)
     """
     # Fetch from RSS (always available)
     rss_articles = await fetch_news_from_rss(sources, topics, limit_per_source=5)
@@ -244,11 +251,22 @@ async def get_top_news(
             seen_titles.add(title_key)
             unique_articles.append(article)
 
-    # Sort by recency and return top articles
+    # Sort by recency (most recent = most important for news)
     unique_articles.sort(
         key=lambda a: a.published or datetime.min,
         reverse=True,
     )
+
+    # If stories_per_source is set, limit to N stories per source
+    if stories_per_source is not None:
+        source_counts: dict[str, int] = {}
+        filtered_articles = []
+        for article in unique_articles:
+            source_key = article.source.lower()
+            if source_counts.get(source_key, 0) < stories_per_source:
+                filtered_articles.append(article)
+                source_counts[source_key] = source_counts.get(source_key, 0) + 1
+        unique_articles = filtered_articles
 
     return unique_articles[:limit]
 

@@ -58,10 +58,17 @@ async def generate_briefing(
 ):
     """Trigger generation of a new morning briefing."""
     from src.agents.orchestrator import generate_briefing_task
+    from src.utils.timezone import get_user_now
+
+    # Get user timezone for the title
+    result = await session.execute(select(UserSettings).limit(1))
+    user_settings = result.scalar_one_or_none()
+    user_tz = getattr(user_settings, 'timezone', None) or "America/New_York"
+    user_now = get_user_now(user_tz)
 
     # Create pending briefing record
     briefing = Briefing(
-        title=f"Morning Briefing - {datetime.now().strftime('%B %d, %Y')}",
+        title=f"Morning Briefing - {user_now.strftime('%B %d, %Y')}",
         duration_seconds=0,
         audio_filename="",
         script={},
@@ -76,7 +83,7 @@ async def generate_briefing(
     background_tasks.add_task(
         generate_briefing_task,
         briefing_id=briefing.id,
-        override_duration=request.override_duration_minutes,
+        override_length=request.override_length,
         override_topics=request.override_topics,
     )
 
@@ -310,11 +317,10 @@ async def get_settings_endpoint(
         sports_leagues=user_settings.sports_leagues,
         weather_locations=user_settings.weather_locations,
         fun_segments=user_settings.fun_segments,
-        duration_minutes=user_settings.duration_minutes,
+        briefing_length=user_settings.briefing_length,
         include_intro_music=user_settings.include_intro_music,
         include_transitions=user_settings.include_transitions,
         news_exclusions=user_settings.news_exclusions or [],
-        priority_topics=user_settings.priority_topics or [],
         voice_id=user_settings.voice_id,
         voice_style=user_settings.voice_style,
         voice_speed=user_settings.voice_speed,
@@ -322,6 +328,7 @@ async def get_settings_endpoint(
         segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
         include_music=user_settings.include_music or False,
         writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
+        timezone=getattr(user_settings, 'timezone', None) or "America/New_York",
         updated_at=user_settings.updated_at,
     )
 
@@ -340,6 +347,11 @@ async def update_settings(
 
     # Update fields
     update_data = update.model_dump(exclude_unset=True)
+
+    # Log briefing_length changes for debugging
+    if "briefing_length" in update_data:
+        print(f"[Settings] Updating briefing_length: {user_settings.briefing_length!r} -> {update_data['briefing_length']!r}")
+
     for field, value in update_data.items():
         if field == "sports_teams":
             # Convert SportsTeam models to dicts
@@ -364,11 +376,10 @@ async def update_settings(
         sports_leagues=user_settings.sports_leagues,
         weather_locations=user_settings.weather_locations,
         fun_segments=user_settings.fun_segments,
-        duration_minutes=user_settings.duration_minutes,
+        briefing_length=user_settings.briefing_length,
         include_intro_music=user_settings.include_intro_music,
         include_transitions=user_settings.include_transitions,
         news_exclusions=user_settings.news_exclusions or [],
-        priority_topics=user_settings.priority_topics or [],
         voice_id=user_settings.voice_id,
         voice_style=user_settings.voice_style,
         voice_speed=user_settings.voice_speed,
@@ -376,6 +387,7 @@ async def update_settings(
         segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
         include_music=user_settings.include_music or False,
         writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
+        timezone=getattr(user_settings, 'timezone', None) or "America/New_York",
         updated_at=user_settings.updated_at,
     )
 
@@ -418,8 +430,16 @@ async def update_schedule(
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     # Update fields
-    for field, value in update.model_dump(exclude_unset=True).items():
+    update_data = update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
         setattr(schedule, field, value)
+
+    # Sync timezone to UserSettings if it was updated
+    if "timezone" in update_data:
+        settings_result = await session.execute(select(UserSettings).limit(1))
+        user_settings = settings_result.scalar_one_or_none()
+        if user_settings:
+            user_settings.timezone = schedule.timezone
 
     await session.commit()
     await session.refresh(schedule)

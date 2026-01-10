@@ -27,39 +27,33 @@ from src.tools.music_tools import (
     format_music_for_agent,
     get_music_with_audio,
 )
+from src.prompts import (
+    PromptRenderer,
+    get_segment_display_names,
+    get_writing_style,
+    render_prompt,
+)
 
-
-# Writing style definitions - affects the tone and style of the generated script
-WRITING_STYLES = {
-    "good_morning_america": {
-        "name": "Good Morning, America",
-        "prompt": """Write in an upbeat, energetic morning show style. Be warm, enthusiastic, and approachable.
-Use exclamations where natural, maintain a positive outlook, and make listeners feel ready to tackle their day.
-Keep the energy high but genuine - this is a friendly wake-up call to start the day right.""",
-    },
-    "firing_line": {
-        "name": "Firing Line",
-        "prompt": """Write with the wit, humor, and intellectual air of William F. Buckley, Jr.
-Use sophisticated vocabulary, employ clever turns of phrase, and maintain an erudite but accessible tone.
-Include dry wit and occasional sardonic observations. Engage with ideas thoughtfully and incisively.
-Your commentary should be sharp, articulate, and demonstrate genuine intellectual curiosity.""",
-    },
-    "ernest_hemingway": {
-        "name": "Ernest Hemingway",
-        "prompt": """Write in the literary style of Ernest Hemingway. Use short, declarative sentences.
-Be direct and spare with words. Avoid adjectives when possible. Let the facts speak.
-No flowery language. Simple. Clear. True. Say what happened. Move on.
-The truth needs no embellishment.""",
-    },
-}
 
 DEFAULT_WRITING_STYLE = "good_morning_america"
 
 
-async def generate_briefing_title(script: BriefingScript) -> str:
-    """Generate a brief, descriptive title for the briefing based on its content."""
+async def generate_briefing_title(
+    script: BriefingScript,
+    user_timezone: str = None,
+    prompt_renderer: PromptRenderer = None,
+) -> str:
+    """Generate a brief, descriptive title for the briefing based on its content.
+
+    Args:
+        script: The generated briefing script
+        user_timezone: IANA timezone string for date formatting
+        prompt_renderer: Optional renderer to track prompts for storage
+    """
+    from src.utils.timezone import get_user_now
+
     settings = get_settings()
-    today = datetime.now()
+    today = get_user_now(user_timezone)
     date_str = today.strftime("%-m/%-d/%y")  # m/d/yy format
 
     # Extract text from all segments to summarize
@@ -70,33 +64,22 @@ async def generate_briefing_title(script: BriefingScript) -> str:
 
     content_summary = " ".join(all_text)[:1500]  # Limit total content
 
+    # Render prompt from template
+    user_prompt = render_prompt(
+        "briefing_title.jinja2",
+        content_summary=content_summary,
+    )
+
+    # Track rendered prompt if renderer provided
+    if prompt_renderer:
+        prompt_renderer.add_prompt("title_prompt", user_prompt)
+
     try:
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": f"""Based on this morning briefing content, generate a very brief title (2-5 words, comma-separated) that captures the SPECIFIC topics discussed.
-
-IMPORTANT RULES:
-- Do NOT use generic section names like "Weather", "Sports", "News", "Markets"
-- Instead use SPECIFIC topics: team names, company names, events, places
-- Separate topics with commas
-- Just output the words, no quotes or extra punctuation
-
-Content: {content_summary}
-
-Examples of good titles:
-- Tesla Earnings, Lakers Win
-- NYC Snow, Fed Rates
-- Apple Event, Giants Trade
-- Boeing Strike, Heat Wave
-
-Examples of BAD titles (too generic):
-- Weather Update, Sports News
-- Market Recap, News Roundup"""
-            }]
+            messages=[{"role": "user", "content": user_prompt}]
         )
         topic_words = response.content[0].text.strip()
         # Clean up any extra punctuation or quotes
@@ -107,68 +90,25 @@ Examples of BAD titles (too generic):
         return f"{date_str} - Morning Briefing"
 
 
-SCRIPT_WRITER_SYSTEM_PROMPT_TEMPLATE = """You are a professional radio scriptwriter for "Morning Drive," a personalized morning briefing show. Your job is to transform raw news, sports, weather, and fun content into an engaging, conversational radio script.
+async def gather_all_content(
+    settings: UserSettings,
+    include_music: bool = False,
+    length_mode: str = "short",
+    user_timezone: str = None,
+) -> dict:
+    """Gather content from all sources in parallel.
 
-WRITING STYLE:
-{writing_style_instructions}
+    Args:
+        settings: User settings
+        include_music: Whether to include music segment
+        length_mode: "short" or "long" - controls content limits
+        user_timezone: IANA timezone string for date/time operations
+    """
+    from src.api.schemas import CONTENT_LIMITS
+    from src.utils.timezone import get_user_now
 
-STYLE GUIDELINES:
-- Use natural transitions between segments
-- Include brief pauses where appropriate (indicated by "...")
-- Vary sentence length for natural rhythm
-- When reading quotes, indicate the voice profile needed based on the speaker's likely demographics
-
-STRUCTURE:
-- Open with a friendly greeting and the date
-- Flow naturally between segments in this order: {segment_flow}
-- Each segment should feel connected, not abrupt
-- End with an upbeat sign-off
-- IMPORTANT: You must follow the exact segment order specified above
-{classical_music_instruction}
-
-SPORTS CONTENT GUIDELINES:
-- Always mention games involving the user's favorite teams (listed in the sports data)
-- For other games, only mention if they are extraordinarily interesting or meaningful (playoffs, records, major upsets, rivalry games, etc.)
-- If no games are happening soon or nothing interesting, it's okay to skip sports or briefly acknowledge the offseason
-- Pay attention to game dates - don't present future games as happening today
-
-QUOTE HANDLING:
-When including quotes from real people, format them like this:
-[QUOTE: voice_profile="demographic_description" attribution="Person Name"]
-Quote text here
-[/QUOTE]
-
-For voice_profile, describe demographics that would help match a voice:
-- male_american_30s, female_british_40s, male_older_60s, etc.
-- Include nationality/accent if relevant (e.g., "male_icelandic_50s")
-
-OUTPUT FORMAT:
-Return a JSON object with this structure:
-{{
-  "segments": [
-    {{
-      "type": "intro|news|sports|weather|fun|music|outro",
-      "items": [
-        {{
-          "voice": "host",
-          "text": "Script text here"
-        }},
-        {{
-          "voice": "quote",
-          "voice_profile": "demographic description",
-          "text": "Quote text",
-          "attribution": "Speaker name"
-        }}
-      ]
-    }}
-  ]
-}}
-
-Only return valid JSON, no other text or markdown."""
-
-
-async def gather_all_content(settings: UserSettings, include_music: bool = False) -> dict:
-    """Gather content from all sources in parallel."""
+    limits = CONTENT_LIMITS.get(length_mode, CONTENT_LIMITS["short"])
+    print(f"[Content] gather_all_content: length_mode={length_mode!r}, limits.history_events={limits.history_events}")
 
     # Prepare tasks
     async def fetch_news():
@@ -176,6 +116,7 @@ async def gather_all_content(settings: UserSettings, include_music: bool = False
             sources=settings.news_sources or ["bbc", "npr", "nyt"],
             topics=settings.news_topics or ["top", "technology", "business"],
             limit=10,
+            stories_per_source=limits.news_stories_per_source,
         )
         return format_news_for_agent(articles)
 
@@ -183,7 +124,11 @@ async def gather_all_content(settings: UserSettings, include_music: bool = False
         leagues = settings.sports_leagues or ["nfl", "mlb", "nhl"]
         teams = settings.sports_teams or []
 
-        scores = await get_scores_for_leagues(leagues)
+        scores = await get_scores_for_leagues(
+            leagues,
+            favorite_teams_only=limits.sports_favorite_teams_only,
+            favorite_teams=teams,
+        )
         news = await get_sports_news(leagues, limit_per_league=2)
         team_games = await get_team_updates(teams) if teams else []
 
@@ -203,18 +148,25 @@ async def gather_all_content(settings: UserSettings, include_music: bool = False
             "this_day_in_history",
             "quote_of_the_day",
         ]
-        content = await get_fun_content(segments)
-        return format_fun_content_for_agent(content)
+        content = await get_fun_content(
+            segments,
+            history_limit=limits.history_events,
+            user_timezone=user_timezone,
+        )
+        return format_fun_content_for_agent(content, user_timezone=user_timezone)
 
     async def fetch_market():
         if "market_minute" in (settings.fun_segments or []):
-            summary = await get_market_summary()
-            return format_market_for_agent(summary)
+            summary = await get_market_summary(
+                movers_limit=limits.finance_movers_limit,
+                user_timezone=user_timezone,
+            )
+            return format_market_for_agent(summary, user_timezone=user_timezone)
         return ""
 
     async def fetch_music():
         if include_music:
-            today = datetime.now().strftime("%Y-%m-%d")
+            today = get_user_now(user_timezone).strftime("%Y-%m-%d")
 
             # Get music piece and audio from database/MinIO
             audio_path, piece = await get_music_with_audio(today)
@@ -268,22 +220,35 @@ async def gather_all_content(settings: UserSettings, include_music: bool = False
     return content
 
 
-SEGMENT_DISPLAY_NAMES = {
-    "news": "News",
-    "sports": "Sports",
-    "weather": "Weather",
-    "fun": "Fun segments",
-}
-
-
 async def generate_script_with_claude(
     content: dict,
-    target_duration_minutes: int,
+    length_mode: str,
     segment_order: list[str] = None,
     include_music: bool = False,
     writing_style: str = None,
+    user_timezone: str = None,
+    prompt_renderer: PromptRenderer = None,
+    news_exclusions: list[str] = None,
 ) -> BriefingScript:
-    """Use Claude to generate the radio script."""
+    """Use Claude to generate the radio script.
+
+    Args:
+        content: Content dict from gather_all_content
+        length_mode: "short" or "long" - determines target duration and word count
+        segment_order: Order of segments
+        include_music: Whether to include music segment
+        writing_style: Writing style key
+        user_timezone: IANA timezone string for date/time operations
+        prompt_renderer: Optional renderer to track prompts for storage
+        news_exclusions: Topics to exclude from news segment (not history or other segments)
+    """
+    from src.api.schemas import CONTENT_LIMITS
+    from src.utils.timezone import get_user_now
+
+    limits = CONTENT_LIMITS.get(length_mode, CONTENT_LIMITS["short"])
+    target_duration_minutes = limits.target_duration_minutes
+    target_word_count = limits.target_word_count
+
     settings = get_settings()
 
     if not settings.anthropic_api_key:
@@ -295,29 +260,23 @@ async def generate_script_with_claude(
     if not segment_order:
         segment_order = ["news", "sports", "weather", "fun"]
 
-    # Build the segment flow string for the prompt
-    segment_names = [SEGMENT_DISPLAY_NAMES.get(s, s.title()) for s in segment_order]
+    # Build the segment flow string for the prompt using YAML data
+    segment_display_names = get_segment_display_names()
+    segment_names = [segment_display_names.get(s, s.title()) for s in segment_order]
     segment_flow = " → ".join(segment_names) + " → Sign off"
 
-    # Add music instruction if enabled
-    if include_music:
-        music_instruction = """
-- MUSIC: After the sign-off, include a segment with type "music" that introduces the music piece.
-  The introduction should be warm and engaging, helping listeners appreciate what they're about to hear.
-  IMPORTANT: Use type "music" (not "news" or any other type) for this segment."""
-    else:
-        music_instruction = ""
-
-    # Get writing style instructions
+    # Get writing style instructions from YAML
     style_key = writing_style or DEFAULT_WRITING_STYLE
-    style_config = WRITING_STYLES.get(style_key, WRITING_STYLES[DEFAULT_WRITING_STYLE])
+    style_config = get_writing_style(style_key)
     writing_style_instructions = style_config["prompt"]
 
-    # Build the system prompt with the dynamic segment order and writing style
-    system_prompt = SCRIPT_WRITER_SYSTEM_PROMPT_TEMPLATE.format(
-        segment_flow=segment_flow,
-        classical_music_instruction=music_instruction,
+    # Render system prompt from Jinja template
+    system_prompt = render_prompt(
+        "script_writer_system.jinja2",
         writing_style_instructions=writing_style_instructions,
+        segment_flow=segment_flow,
+        include_music=include_music,
+        news_exclusions=news_exclusions or [],
     )
 
     # Build content sections in the user-specified order
@@ -336,28 +295,29 @@ async def generate_script_with_claude(
                 content_sections.append(content["market"])
 
     # Build the prompt with content in the specified order
-    today = datetime.now()
+    today = get_user_now(user_timezone)
 
     # Add music content if enabled
     music_section = ""
     if include_music and content.get("music"):
-        music_section = f"\n\n{content['music']}"
+        music_section = content["music"]
 
-    user_prompt = f"""Create a {target_duration_minutes}-minute morning radio briefing script for {today.strftime('%A, %B %d, %Y')}.
+    # Render user prompt from Jinja template
+    user_prompt = render_prompt(
+        "script_writer_user.jinja2",
+        target_duration_minutes=target_duration_minutes,
+        target_word_count=target_word_count,
+        date_formatted=today.strftime('%A, %B %d, %Y'),
+        content_sections="\n".join(content_sections),
+        music_section=music_section,
+        segment_flow=segment_flow,
+        include_music=include_music,
+    )
 
-Here is the content to work with (in the order you should present it):
-
-{chr(10).join(content_sections)}{music_section}
-
-Remember:
-- Target duration: {target_duration_minutes} minutes (approximately {target_duration_minutes * 150} words)
-- Follow the segment order exactly: {segment_flow}
-- Prioritize the most interesting/important stories
-- Make natural transitions between topics
-- Include appropriate quotes with voice profiles
-- End with a positive, engaging sign-off{"" if not include_music else chr(10) + "- After the sign-off, create a brief music introduction segment"}
-
-Return ONLY the JSON script structure as specified."""
+    # Track rendered prompts if renderer provided
+    if prompt_renderer:
+        prompt_renderer.add_prompt("script_system_prompt", system_prompt)
+        prompt_renderer.add_prompt("script_user_prompt", user_prompt)
 
     # Call Claude (async to avoid blocking the event loop)
     message = await client.messages.create(
@@ -566,13 +526,18 @@ async def request_user_confirmation(
 
 async def generate_briefing_task(
     briefing_id: int,
-    override_duration: Optional[int] = None,
+    override_length: Optional[str] = None,
     override_topics: Optional[list[str]] = None,
 ):
     """Background task to generate a complete briefing.
 
     This is the main entry point called by the API route.
     Errors are tracked and the user is prompted to decide how to proceed.
+
+    Args:
+        briefing_id: ID of the briefing record to update
+        override_length: Override briefing length ("short" or "long")
+        override_topics: Override news topics
     """
     collected_errors = []
 
@@ -591,16 +556,30 @@ async def generate_briefing_task(
                 return
 
         # Apply overrides
-        duration = override_duration or user_settings.duration_minutes
+        db_briefing_length = getattr(user_settings, 'briefing_length', None)
+        print(f"[Briefing {briefing_id}] DB briefing_length: {db_briefing_length!r}, override_length: {override_length!r}")
+
+        # Use override if provided, otherwise fall back to DB setting, then default to "short"
+        length_mode = override_length or db_briefing_length or "short"
+        print(f"[Briefing {briefing_id}] Final length_mode: {length_mode!r}")
+
         if override_topics:
             user_settings.news_topics = override_topics
+
+        # Get user timezone for all date/time operations
+        user_timezone = getattr(user_settings, 'timezone', None) or "America/New_York"
+
+        # Create prompt renderer to track all rendered prompts
+        prompt_renderer = PromptRenderer()
 
         # Phase 1: Gather content
         await update_briefing_status(briefing_id, "gathering_content")
         include_music_enabled = user_settings.include_music or False
 
         try:
-            content = await gather_all_content(user_settings, include_music_enabled)
+            content = await gather_all_content(
+                user_settings, include_music_enabled, length_mode, user_timezone=user_timezone
+            )
         except Exception as e:
             decision = await request_user_confirmation(
                 briefing_id,
@@ -614,7 +593,9 @@ async def generate_briefing_task(
                 return
             elif decision == "retry":
                 # Retry content gathering
-                content = await gather_all_content(user_settings, include_music_enabled)
+                content = await gather_all_content(
+                    user_settings, include_music_enabled, length_mode, user_timezone=user_timezone
+                )
 
         # Check for content issues
         if content.get("news") == "News unavailable.":
@@ -625,14 +606,35 @@ async def generate_briefing_task(
                 fallback_description="Briefing will skip news segment"
             )
 
+        if content.get("weather") == "Weather unavailable.":
+            await add_generation_error(
+                briefing_id, "gathering_content", "weather",
+                "Weather API returned no content or timed out",
+                recoverable=True,
+                fallback_description="Briefing will have generic weather fallback"
+            )
+
+        if content.get("sports") == "Sports unavailable.":
+            await add_generation_error(
+                briefing_id, "gathering_content", "sports",
+                "Sports API returned no content",
+                recoverable=True,
+                fallback_description="Briefing will skip sports segment"
+            )
+
         # Phase 2: Generate script with Claude
         await update_briefing_status(briefing_id, "writing_script")
         segment_order = user_settings.segment_order or ["news", "sports", "weather", "fun"]
         writing_style = getattr(user_settings, 'writing_style', None) or DEFAULT_WRITING_STYLE
 
+        news_exclusions = getattr(user_settings, 'news_exclusions', None) or []
+
         try:
             script = await generate_script_with_claude(
-                content, duration, segment_order, include_music_enabled, writing_style
+                content, length_mode, segment_order, include_music_enabled, writing_style,
+                user_timezone=user_timezone,
+                prompt_renderer=prompt_renderer,
+                news_exclusions=news_exclusions,
             )
         except Exception as e:
             decision = await request_user_confirmation(
@@ -647,7 +649,10 @@ async def generate_briefing_task(
                 return
             elif decision == "retry":
                 script = await generate_script_with_claude(
-                    content, duration, segment_order, include_music_enabled, writing_style
+                    content, length_mode, segment_order, include_music_enabled, writing_style,
+                    user_timezone=user_timezone,
+                    prompt_renderer=prompt_renderer,
+                    news_exclusions=news_exclusions,
                 )
 
         # Phase 3: Generate audio
@@ -770,7 +775,9 @@ async def generate_briefing_task(
             )
 
         # Generate a descriptive title based on the script content
-        briefing_title = await generate_briefing_title(script)
+        briefing_title = await generate_briefing_title(
+            script, user_timezone=user_timezone, prompt_renderer=prompt_renderer
+        )
 
         # Update briefing record with results
         async with async_session() as session:
@@ -793,6 +800,7 @@ async def generate_briefing_task(
                 briefing.script = script.model_dump()
                 briefing.segments_metadata = segments_metadata
                 briefing.pending_action = None  # Clear any pending action
+                briefing.rendered_prompts = prompt_renderer.get_all_rendered()
                 await session.commit()
 
         print(f"Briefing {briefing_id} generated successfully!")

@@ -56,9 +56,22 @@ async def fetch_this_day_in_history(
     limit_events: int = 5,
     limit_births: int = 3,
     limit_deaths: int = 2,
+    total_limit: Optional[int] = None,
+    user_timezone: str = None,
 ) -> list[HistoricalEvent]:
-    """Fetch events that happened on this day in history."""
-    now = datetime.now()
+    """Fetch events that happened on this day in history.
+
+    Args:
+        limit_events: Max selected historical events
+        limit_births: Max notable births
+        limit_deaths: Max notable deaths
+        total_limit: If set, return only the top N most important events total
+                     (events prioritized over births over deaths, then by recency)
+        user_timezone: IANA timezone string for determining "today"
+    """
+    from src.utils.timezone import get_user_now
+
+    now = get_user_now(user_timezone)
     # Wikipedia API requires zero-padded month and day
     month = f"{now.month:02d}"
     day = f"{now.day:02d}"
@@ -112,6 +125,19 @@ async def fetch_this_day_in_history(
     except Exception as e:
         print(f"Error fetching historical events: {e}")
 
+    print(f"[History] fetch_this_day_in_history: total_limit={total_limit!r}, fetched {len(events)} events before filtering")
+
+    # If total_limit is set, return only the top N most important events
+    # Priority: events > births > deaths, then by recency (more recent history first)
+    if total_limit is not None and len(events) > total_limit:
+        def importance_key(event: HistoricalEvent) -> tuple[int, int]:
+            category_priority = {"event": 0, "birth": 1, "death": 2}
+            return (category_priority.get(event.category, 3), -event.year)
+
+        events.sort(key=importance_key)
+        events = events[:total_limit]
+
+    print(f"[History] Returning {len(events)} events after filtering")
     return events
 
 
@@ -174,8 +200,14 @@ async def fetch_dad_joke() -> Optional[DadJoke]:
     return random.choice(fallback_jokes)
 
 
-async def fetch_word_of_the_day() -> Optional[WordOfTheDay]:
-    """Fetch word of the day."""
+async def fetch_word_of_the_day(user_timezone: str = None) -> Optional[WordOfTheDay]:
+    """Fetch word of the day.
+
+    Args:
+        user_timezone: IANA timezone string for determining the day of year
+    """
+    from src.utils.timezone import get_user_now
+
     # Using Free Dictionary API
     # Generate a random interesting word from a curated list
     interesting_words = [
@@ -186,7 +218,7 @@ async def fetch_word_of_the_day() -> Optional[WordOfTheDay]:
     ]
 
     # Pick based on day of year for consistency
-    day_of_year = datetime.now().timetuple().tm_yday
+    day_of_year = get_user_now(user_timezone).timetuple().tm_yday
     word = interesting_words[day_of_year % len(interesting_words)]
 
     try:
@@ -254,6 +286,8 @@ async def fetch_sports_history() -> list[HistoricalEvent]:
 
 async def get_fun_content(
     segments: list[str],
+    history_limit: Optional[int] = None,
+    user_timezone: str = None,
 ) -> dict[str, any]:
     """Fetch fun content for requested segment types.
 
@@ -265,35 +299,52 @@ async def get_fun_content(
             - word_of_the_day
             - sports_history
             - market_minute (handled separately)
+        history_limit: If set, limit This Day in History to N events total
+        user_timezone: IANA timezone string for date-dependent content
 
     Returns:
         Dict with content for each segment type
     """
+    print(f"[Fun Content] get_fun_content called with history_limit={history_limit!r}")
     content = {}
 
     for segment in segments:
         if segment == "this_day_in_history":
-            content["this_day_in_history"] = await fetch_this_day_in_history()
+            events = await fetch_this_day_in_history(
+                total_limit=history_limit,
+                user_timezone=user_timezone,
+            )
+            print(f"[Fun Content] fetch_this_day_in_history returned {len(events)} events")
+            content["this_day_in_history"] = events
         elif segment == "quote_of_the_day":
             content["quote_of_the_day"] = await fetch_quote_of_the_day()
         elif segment == "dad_joke":
             content["dad_joke"] = await fetch_dad_joke()
         elif segment == "word_of_the_day":
-            content["word_of_the_day"] = await fetch_word_of_the_day()
+            content["word_of_the_day"] = await fetch_word_of_the_day(
+                user_timezone=user_timezone,
+            )
         elif segment == "sports_history":
             content["sports_history"] = await fetch_sports_history()
 
     return content
 
 
-def format_fun_content_for_agent(content: dict) -> str:
-    """Format fun content for the Claude agent."""
+def format_fun_content_for_agent(content: dict, user_timezone: str = None) -> str:
+    """Format fun content for the Claude agent.
+
+    Args:
+        content: Dict with content for each segment type
+        user_timezone: IANA timezone string for date formatting
+    """
+    from src.utils.timezone import get_user_now
+
     lines = ["# Fun Segments\n"]
 
     # This day in history
     if "this_day_in_history" in content and content["this_day_in_history"]:
         lines.append("## This Day in History\n")
-        today = datetime.now()
+        today = get_user_now(user_timezone)
         lines.append(f"*{today.strftime('%B %d')}*\n")
 
         for event in content["this_day_in_history"]:

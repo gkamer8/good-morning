@@ -25,6 +25,7 @@ import TrackPlayer from 'react-native-track-player';
 import { api } from '../services/api';
 import { playVoicePreview, stopVoicePreview } from '../services/audio';
 import { useSettingsStore, useAppConfigStore } from '../store';
+import { APP_VERSION } from '../version';
 import {
   NEWS_TOPICS,
   NEWS_SOURCES,
@@ -36,9 +37,11 @@ import {
   WRITING_STYLES,
   SEGMENT_TYPES,
   DEFAULT_SEGMENT_ORDER,
+  BRIEFING_LENGTHS,
   SportsTeam,
   WeatherLocation,
   VoiceInfo,
+  BriefingLength,
 } from '../types';
 
 export function SettingsScreen() {
@@ -51,7 +54,6 @@ export function SettingsScreen() {
 
   const [localServerUrl, setLocalServerUrl] = useState(serverUrl);
   const [newExclusion, setNewExclusion] = useState('');
-  const [newPriorityTopic, setNewPriorityTopic] = useState('');
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
   const [newTeamName, setNewTeamName] = useState('');
@@ -261,25 +263,6 @@ export function SettingsScreen() {
     });
   };
 
-  const handleAddPriorityTopic = () => {
-    if (!settings || !newPriorityTopic.trim()) return;
-    const topics = settings.priority_topics || [];
-    if (!topics.includes(newPriorityTopic.trim())) {
-      updateSettingsMutation.mutate({
-        priority_topics: [...topics, newPriorityTopic.trim()],
-      });
-    }
-    setNewPriorityTopic('');
-  };
-
-  const handleRemovePriorityTopic = (topic: string) => {
-    if (!settings) return;
-    const topics = settings.priority_topics || [];
-    updateSettingsMutation.mutate({
-      priority_topics: topics.filter((t) => t !== topic),
-    });
-  };
-
   const handleToggleScheduleDay = (day: number) => {
     if (!schedule) return;
     const newDays = schedule.days_of_week.includes(day)
@@ -463,34 +446,48 @@ export function SettingsScreen() {
       {/* Only show rest of settings when loaded successfully */}
       {!isContentLoading && !hasConnectionError && (
         <>
-          {/* Briefing Duration */}
+          {/* Briefing Length */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Briefing Duration</Text>
+        <Text style={styles.sectionTitle}>Briefing Length</Text>
         <View style={styles.card}>
-          <View style={styles.durationOptions}>
-            {[5, 10, 15, 20].map((mins) => (
-              <TouchableOpacity
-                key={mins}
-                style={[
-                  styles.durationOption,
-                  settings?.duration_minutes === mins &&
-                    styles.durationOptionSelected,
-                ]}
-                onPress={() =>
-                  updateSettingsMutation.mutate({ duration_minutes: mins })
-                }
-              >
-                <Text
+          <View style={styles.briefingLengthOptions}>
+            {BRIEFING_LENGTHS.map((length) => {
+              const isSelected = settings?.briefing_length === length.id;
+              return (
+                <TouchableOpacity
+                  key={length.id}
                   style={[
-                    styles.durationText,
-                    settings?.duration_minutes === mins &&
-                      styles.durationTextSelected,
+                    styles.briefingLengthOption,
+                    isSelected && styles.briefingLengthOptionSelected,
                   ]}
+                  onPress={() =>
+                    updateSettingsMutation.mutate({ briefing_length: length.id })
+                  }
                 >
-                  {mins} min
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <View style={styles.briefingLengthHeader}>
+                    <Text
+                      style={[
+                        styles.briefingLengthLabel,
+                        isSelected && styles.briefingLengthLabelSelected,
+                      ]}
+                    >
+                      {length.label}
+                    </Text>
+                    {isSelected && (
+                      <Icon name="checkmark-circle" size={22} color="#fff" />
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.briefingLengthDesc,
+                      isSelected && styles.briefingLengthDescSelected,
+                    ]}
+                  >
+                    {length.description}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -574,49 +571,6 @@ export function SettingsScreen() {
               />
             </TouchableOpacity>
           ))}
-        </View>
-      </View>
-
-      {/* Priority Topics */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Priority Topics</Text>
-        <View style={styles.card}>
-          <Text style={styles.exclusionHint}>
-            Add topics you want emphasized (e.g., "tech startups", "AI news", "climate policy")
-          </Text>
-          <View style={styles.exclusionInputRow}>
-            <TextInput
-              style={styles.exclusionInput}
-              value={newPriorityTopic}
-              onChangeText={setNewPriorityTopic}
-              placeholder="Enter topic to prioritize..."
-              onSubmitEditing={handleAddPriorityTopic}
-              returnKeyType="done"
-            />
-            <TouchableOpacity
-              style={[styles.addExclusionButton, { backgroundColor: '#22c55e' }]}
-              onPress={handleAddPriorityTopic}
-            >
-              <Icon name="add" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.exclusionTags}>
-            {(settings?.priority_topics || []).length === 0 && (
-              <Text style={styles.emptyTagsText}>No priority topics added yet</Text>
-            )}
-            {(settings?.priority_topics || []).map((topic, index) => (
-              <View key={index} style={[styles.exclusionTag, styles.priorityTag]}>
-                <Icon name="star" size={14} color="#22c55e" />
-                <Text style={styles.exclusionTagText} numberOfLines={1}>{topic}</Text>
-                <TouchableOpacity
-                  onPress={() => handleRemovePriorityTopic(topic)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Icon name="close-circle" size={18} color="#666" />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
         </View>
       </View>
 
@@ -1221,6 +1175,11 @@ export function SettingsScreen() {
         </View>
       </View>
 
+      {/* Version Info */}
+      <View style={styles.versionContainer}>
+        <Text style={styles.versionText}>App Version {APP_VERSION}</Text>
+      </View>
+
     </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1337,6 +1296,42 @@ const styles = StyleSheet.create({
   durationTextSelected: {
     color: '#fff',
     fontWeight: '600',
+  },
+  briefingLengthOptions: {
+    flexDirection: 'row',
+    padding: 8,
+    gap: 12,
+  },
+  briefingLengthOption: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#f5f5f7',
+  },
+  briefingLengthOptionSelected: {
+    backgroundColor: '#4f46e5',
+  },
+  briefingLengthHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  briefingLengthLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+  },
+  briefingLengthLabelSelected: {
+    color: '#fff',
+  },
+  briefingLengthDesc: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  briefingLengthDescSelected: {
+    color: 'rgba(255,255,255,0.85)',
   },
   daysRow: {
     flexDirection: 'row',
@@ -1735,5 +1730,14 @@ const styles = StyleSheet.create({
   },
   writingStyleOptionDescSelected: {
     color: 'rgba(255,255,255,0.8)',
+  },
+  versionContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingBottom: 40,
+  },
+  versionText: {
+    fontSize: 13,
+    color: '#999',
   },
 });

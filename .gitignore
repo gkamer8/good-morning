@@ -33,3 +33,6 @@ MorningDriveApp/build/
 
 # React Native
 *.jsbundle
+
+# Music cache
+backend/assets/music_cache/

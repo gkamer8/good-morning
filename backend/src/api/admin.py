@@ -186,6 +186,8 @@ def get_audio_duration(audio_bytes: bytes) -> float:
 
 async def generate_music_description(title: str, composer: str) -> str:
     """Generate an interesting description for a classical music piece using Claude."""
+    from src.prompts import render_prompt
+
     settings = get_settings()
 
     if not settings.anthropic_api_key:
@@ -193,12 +195,12 @@ async def generate_music_description(title: str, composer: str) -> str:
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-    prompt = f"""Write a brief, engaging introduction for a classical music piece that a radio host would read before playing it. Keep it to 2-3 sentences.
-
-Title: {title}
-Composer: {composer}
-
-Include one or two interesting facts about the piece or composer. Make it conversational and suitable for a morning radio show. Do not include any prefixes like "Here's" or "And now" - just the interesting content."""
+    # Render prompt from Jinja template
+    prompt = render_prompt(
+        "music_description.jinja2",
+        title=title,
+        composer=composer,
+    )
 
     try:
         message = await client.messages.create(
@@ -568,8 +570,9 @@ async def get_rss_preview(request: Request, feed: str):
 
     try:
         # Fetch and parse the RSS feed
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(feed_url)
+        headers = {"User-Agent": "MorningDrive/1.0 (Personal News Aggregator)"}
+        async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+            response = await client.get(feed_url, follow_redirects=True)
             response.raise_for_status()
 
         # Parse the feed
@@ -819,7 +822,7 @@ async def get_sports_preview(
             continue
 
         try:
-            games = await fetch_espn_scoreboard(league_key)
+            games = await fetch_espn_scoreboard(league_key, "America/New_York")
             preview_data["leagues"].append({
                 "league": league.upper(),
                 "endpoint": f"{LEAGUE_ENDPOINTS[league_key]}/scoreboard",
@@ -928,6 +931,7 @@ async def admin_scheduler_page(
     briefings = []
     for b in briefings_raw:
         errors = b.generation_errors if b.generation_errors else []
+        rendered = b.rendered_prompts if b.rendered_prompts else {}
         briefings.append({
             "id": b.id,
             "title": b.title,
@@ -936,6 +940,8 @@ async def admin_scheduler_page(
             "duration": f"{int(b.duration_seconds // 60)}:{int(b.duration_seconds % 60):02d}" if b.duration_seconds else "-",
             "error_count": len(errors),
             "errors": errors,
+            "has_prompts": bool(rendered),
+            "rendered_prompts": rendered,
         })
 
     return templates.TemplateResponse(

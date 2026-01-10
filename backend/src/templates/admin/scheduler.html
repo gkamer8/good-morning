@@ -103,6 +103,7 @@
                     <th>Status</th>
                     <th>Duration</th>
                     <th>Errors</th>
+                    <th>Prompts</th>
                 </tr>
             </thead>
             <tbody>
@@ -138,6 +139,15 @@
                         <span style="color: #666;">-</span>
                         {% endif %}
                     </td>
+                    <td>
+                        {% if briefing.has_prompts %}
+                        <button class="preview-btn" onclick="showPrompts({{ briefing.id }})">
+                            View
+                        </button>
+                        {% else %}
+                        <span style="color: #666;">-</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -163,10 +173,77 @@
         </div>
     </div>
 </div>
+
+<!-- Prompts Modal -->
+<div id="prompts-modal" class="modal" onclick="if(event.target===this) closePromptsModal()">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3 id="prompts-modal-title">Rendered Prompts</h3>
+            <button class="close-modal" onclick="closePromptsModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="prompts-modal-body">
+        </div>
+    </div>
+</div>
+
+<style>
+.modal-large {
+    max-width: 900px;
+    max-height: 85vh;
+}
+.prompt-section {
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.prompt-section-header {
+    background: #f5f5f5;
+    padding: 10px 15px;
+    font-weight: bold;
+    border-bottom: 1px solid #ddd;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.prompt-section-header:hover {
+    background: #eee;
+}
+.prompt-section-body {
+    padding: 15px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 0.8rem;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #fafafa;
+    line-height: 1.4;
+}
+.prompt-section.collapsed .prompt-section-body {
+    display: none;
+}
+.prompt-meta {
+    color: #666;
+    font-size: 0.85rem;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+</style>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
+    // Store all prompts data in a JavaScript object
+    const briefingPrompts = {
+        {% for briefing in briefings %}
+        {% if briefing.has_prompts %}
+        {{ briefing.id }}: {{ briefing.rendered_prompts|tojson }},
+        {% endif %}
+        {% endfor %}
+    };
+
     function showErrors(briefingId, errors) {
         const modal = document.getElementById('error-modal');
         const title = document.getElementById('modal-title');
@@ -200,8 +277,76 @@
         document.getElementById('error-modal').classList.remove('show');
     }
 
+    function showPrompts(briefingId) {
+        const prompts = briefingPrompts[briefingId];
+        const modal = document.getElementById('prompts-modal');
+        const title = document.getElementById('prompts-modal-title');
+        const body = document.getElementById('prompts-modal-body');
+
+        title.textContent = 'Briefing #' + briefingId + ' - Rendered Prompts';
+
+        if (!prompts || Object.keys(prompts).length === 0) {
+            body.innerHTML = '<p>No prompt data available.</p>';
+        } else {
+            let html = '';
+
+            // Show timestamp
+            if (prompts.rendered_at) {
+                html += '<div class="prompt-meta">Rendered at: ' + prompts.rendered_at + '</div>';
+            }
+
+            // Define prompt display order and labels
+            const promptOrder = ['script_system_prompt', 'script_user_prompt', 'title_prompt'];
+            const promptLabels = {
+                'script_system_prompt': 'System Prompt (Script Writer)',
+                'script_user_prompt': 'User Prompt (Script Writer)',
+                'title_prompt': 'Title Generation Prompt'
+            };
+
+            // Render each prompt section
+            for (const key of promptOrder) {
+                if (prompts[key]) {
+                    const isLong = prompts[key].length > 500;
+                    html += `
+                        <div class="prompt-section${isLong ? ' collapsed' : ''}">
+                            <div class="prompt-section-header" onclick="togglePromptSection(this)">
+                                <span>${promptLabels[key] || key}</span>
+                                <span style="font-weight: normal; font-size: 0.85rem;">${isLong ? 'Click to expand' : 'Click to collapse'}</span>
+                            </div>
+                            <div class="prompt-section-body">${escapeHtml(prompts[key])}</div>
+                        </div>
+                    `;
+                }
+            }
+
+            body.innerHTML = html;
+        }
+
+        modal.classList.add('show');
+    }
+
+    function togglePromptSection(header) {
+        const section = header.parentElement;
+        section.classList.toggle('collapsed');
+        const hint = header.querySelector('span:last-child');
+        hint.textContent = section.classList.contains('collapsed') ? 'Click to expand' : 'Click to collapse';
+    }
+
+    function closePromptsModal() {
+        document.getElementById('prompts-modal').classList.remove('show');
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Escape') {
+            closeModal();
+            closePromptsModal();
+        }
     });
 </script>
 {% endblock %}

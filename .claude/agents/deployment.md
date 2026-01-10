@@ -1,6 +1,6 @@
 ---
 name: deployment
-description: Use this agent when the user wants to deploy the Morning Drive backend to production. This includes building Docker images, pushing to Docker Hub, deploying to the server (altair), running database migrations, syncing music, checking logs, or restarting services. Examples:\n\n<example>\nContext: User wants to deploy a new backend version\nuser: "Deploy the latest backend to production"\nassistant: "I'll use the deployment agent to build, push, and deploy the backend to altair."\n<commentary>\nSince the user wants to deploy the backend, use the Task tool to launch the deployment agent to build the Docker image, push it, and deploy to the server.\n</commentary>\n</example>\n\n<example>\nContext: User wants to check production logs\nuser: "Can you check the production logs for errors?"\nassistant: "I'll use the deployment agent to SSH into altair and check the container logs."\n<commentary>\nSince the user wants to check production logs, use the Task tool to launch the deployment agent to connect to the server and retrieve logs.\n</commentary>\n</example>\n\n<example>\nContext: User wants to restart services\nuser: "Restart the backend on production"\nassistant: "I'll use the deployment agent to restart the Morning Drive container on altair."\n<commentary>\nSince the user wants to restart a production service, use the Task tool to launch the deployment agent to handle the restart.\n</commentary>\n</example>\n\n<example>\nContext: User wants to sync music to production\nuser: "Sync the local music library to production"\nassistant: "I'll use the deployment agent to sync music from local MinIO to production."\n<commentary>\nSince the user wants to sync music, use the Task tool to launch the deployment agent to run the music sync script.\n</commentary>\n</example>
+description: Use this agent when the user wants to deploy the Morning Drive backend or iOS app to production. This includes building Docker images, pushing to Docker Hub, deploying to the server (altair), running database migrations, syncing music, checking logs, restarting services, or deploying the iOS app to the user's phone. Examples:\n\n<example>\nContext: User wants to deploy a new backend version\nuser: "Deploy the latest backend to production"\nassistant: "I'll use the deployment agent to build, push, and deploy the backend to altair."\n<commentary>\nSince the user wants to deploy the backend, use the Task tool to launch the deployment agent to build the Docker image, push it, and deploy to the server.\n</commentary>\n</example>\n\n<example>\nContext: User wants to check production logs\nuser: "Can you check the production logs for errors?"\nassistant: "I'll use the deployment agent to SSH into altair and check the container logs."\n<commentary>\nSince the user wants to check production logs, use the Task tool to launch the deployment agent to connect to the server and retrieve logs.\n</commentary>\n</example>\n\n<example>\nContext: User wants to restart services\nuser: "Restart the backend on production"\nassistant: "I'll use the deployment agent to restart the Morning Drive container on altair."\n<commentary>\nSince the user wants to restart a production service, use the Task tool to launch the deployment agent to handle the restart.\n</commentary>\n</example>\n\n<example>\nContext: User wants to sync music to production\nuser: "Sync the local music library to production"\nassistant: "I'll use the deployment agent to sync music from local MinIO to production."\n<commentary>\nSince the user wants to sync music, use the Task tool to launch the deployment agent to run the music sync script.\n</commentary>\n</example>\n\n<example>\nContext: User wants to deploy the iOS app to their phone\nuser: "Deploy the app to my phone"\nassistant: "I'll use the deployment agent to build the production iOS app and install it on your connected iPhone."\n<commentary>\nSince the user wants to deploy the app to their phone, use the deployment agent to build a Release configuration and install the PRODUCTION app (com.g0rdon.morning), NOT the dev app. The dev app connects to Metro and is for development only.\n</commentary>\n</example>\n\n<example>\nContext: User asks to deploy both backend and app\nuser: "Deploy everything to production"\nassistant: "I'll use the deployment agent to deploy the backend to altair and the production iOS app to your phone."\n<commentary>\nDeploy both the backend (Docker to altair) and the iOS app (Release build to phone). For iOS, always use the production app bundle (com.g0rdon.morning), not the dev app.\n</commentary>\n</example>
 model: opus
 ---
 
@@ -153,14 +153,55 @@ ssh altair "docker logs --tail 100 morning-drive-minio"
 
 ## iOS App Deployment
 
-**NOT YET AVAILABLE**
+### IMPORTANT: Dev App vs Production App
 
-TestFlight deployment is not yet configured. The following scripts exist but cannot be used yet:
+There are TWO different apps that can be deployed to the user's phone:
+
+| App | Bundle ID | Name on Phone | Description |
+|-----|-----------|---------------|-------------|
+| **Dev App** | `com.g0rdon.morning.dev` | "Morning Drive Dev" | Debug build, connects to Metro bundler, for development only |
+| **Production App** | `com.g0rdon.morning` | "Morning Drive" | Release build, self-contained, connects to production backend |
+
+**When the user says "deploy to my phone" or "deploy the app", they mean the PRODUCTION app (`com.g0rdon.morning`), NOT the dev app.**
+
+The dev app is always running during development via `npx react-native run-ios` - that's NOT what deployment means.
+
+### Deploy Production App to Connected iPhone
+
+First, find the device UDID:
+```bash
+xcrun xctrace list devices 2>/dev/null | grep iPhone
+# Example output: GKamer's iPhone (26.1) (00008150-0019488A2186401C)
+```
+
+Then build and install the Release version:
+```bash
+cd /Users/gkamer/Desktop/morning-drive/MorningDriveApp
+
+# Build Release configuration for the device
+xcodebuild -workspace ios/MorningDriveApp.xcworkspace \
+  -scheme MorningDriveApp \
+  -configuration Release \
+  -destination "id=<DEVICE_UDID>" \
+  -allowProvisioningUpdates
+
+# Install on device
+xcrun devicectl device install app \
+  --device "<DEVICE_UDID>" \
+  "/Users/gkamer/Library/Developer/Xcode/DerivedData/MorningDriveApp-gjtgehqnygjzfrdfnsszchrxotnj/Build/Products/Release-iphoneos/Morning Drive.app"
+
+# Launch the app
+xcrun devicectl device process launch \
+  --device "<DEVICE_UDID>" \
+  com.g0rdon.morning
+```
+
+### TestFlight Deployment (Future)
+
+TestFlight deployment is not yet fully configured. These scripts exist for future use:
 - `MorningDriveApp/scripts/ios/build-release.sh` - Build iOS archive
 - `MorningDriveApp/scripts/ios/upload-testflight.sh` - Upload to TestFlight
 - `MorningDriveApp/scripts/ios/bump-version.sh` - Bump version numbers
-
-When a user asks about iOS deployment, inform them that TestFlight is not yet set up.
 
 ## Troubleshooting
 

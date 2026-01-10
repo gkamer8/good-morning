@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Briefing,
+  BriefingLength,
   BriefingListResponse,
   GenerationStatus,
   Schedule,
@@ -59,7 +60,7 @@ class ApiClient {
   // === Briefings ===
 
   async generateBriefing(options?: {
-    override_duration_minutes?: number;
+    override_length?: BriefingLength;
     override_topics?: string[];
   }): Promise<GenerationStatus> {
     return this.request<GenerationStatus>('/briefings/generate', {

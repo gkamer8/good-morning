@@ -9,17 +9,25 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 
 from src.agents.orchestrator import generate_briefing_task
-from src.storage.database import Briefing, Schedule, async_session, init_db
+from src.storage.database import Briefing, Schedule, UserSettings, async_session, init_db
+from src.utils.timezone import get_user_now
 
 
 async def create_scheduled_briefing():
     """Create a briefing based on the schedule."""
-    print(f"[{datetime.now()}] Starting scheduled briefing generation...")
+    # Get user timezone for the title
+    async with async_session() as session:
+        result = await session.execute(select(UserSettings).limit(1))
+        user_settings = result.scalar_one_or_none()
+        user_tz = getattr(user_settings, 'timezone', None) or "America/New_York"
+
+    user_now = get_user_now(user_tz)
+    print(f"[{user_now}] Starting scheduled briefing generation...")
 
     # Create a new briefing record
     async with async_session() as session:
         briefing = Briefing(
-            title=f"Morning Briefing - {datetime.now().strftime('%B %d, %Y')}",
+            title=f"Morning Briefing - {user_now.strftime('%B %d, %Y')}",
             duration_seconds=0,
             audio_filename="",
             script={},
@@ -34,9 +42,9 @@ async def create_scheduled_briefing():
     # Generate the briefing
     try:
         await generate_briefing_task(briefing_id=briefing_id)
-        print(f"[{datetime.now()}] Scheduled briefing {briefing_id} completed successfully!")
+        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} completed successfully!")
     except Exception as e:
-        print(f"[{datetime.now()}] Scheduled briefing {briefing_id} failed: {e}")
+        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} failed: {e}")
 
 
 async def setup_scheduler():
@@ -44,14 +52,24 @@ async def setup_scheduler():
     # Initialize database
     await init_db()
 
-    # Get schedule settings
+    # Get schedule and user settings
     async with async_session() as session:
         result = await session.execute(select(Schedule).limit(1))
         schedule = result.scalar_one_or_none()
 
+        result = await session.execute(select(UserSettings).limit(1))
+        user_settings = result.scalar_one_or_none()
+
     if not schedule or not schedule.enabled:
         print("Scheduler is disabled or not configured.")
         return None
+
+    # Use UserSettings.timezone as primary, fall back to Schedule.timezone
+    user_tz = (
+        getattr(user_settings, 'timezone', None) or
+        schedule.timezone or
+        "America/New_York"
+    )
 
     # Create scheduler
     scheduler = AsyncIOScheduler()
@@ -64,7 +82,7 @@ async def setup_scheduler():
         hour=schedule.time_hour,
         minute=schedule.time_minute,
         day_of_week=days_str,
-        timezone=ZoneInfo(schedule.timezone),
+        timezone=ZoneInfo(user_tz),
     )
 
     scheduler.add_job(
@@ -76,7 +94,7 @@ async def setup_scheduler():
     )
 
     print(f"Scheduler configured: {schedule.time_hour:02d}:{schedule.time_minute:02d} "
-          f"on days {schedule.days_of_week} ({schedule.timezone})")
+          f"on days {schedule.days_of_week} ({user_tz})")
 
     return scheduler
 

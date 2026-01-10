@@ -39,6 +39,8 @@ class Briefing(Base):
     generation_errors: Mapped[dict] = mapped_column(JSON, default=list)
     # Pending action awaiting user decision - stores PendingAction dict or null
     pending_action: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Rendered prompts for debugging/viewing in admin panel
+    rendered_prompts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
 
 class UserSettings(Base):
@@ -81,18 +83,13 @@ class UserSettings(Base):
     )
 
     # Briefing preferences
-    duration_minutes: Mapped[int] = mapped_column(Integer, default=10)
+    briefing_length: Mapped[str] = mapped_column(String(10), default="short")  # "short" (~5 min) or "long" (~10 min)
     include_intro_music: Mapped[bool] = mapped_column(default=True)
     include_transitions: Mapped[bool] = mapped_column(default=True)
 
-    # News exclusions - topics/subjects to avoid
+    # News exclusions - topics/subjects to avoid in news segment
     news_exclusions: Mapped[dict] = mapped_column(
         JSON, default=list  # e.g. ["earthquakes outside US", "celebrity gossip"]
-    )
-
-    # Priority topics - topics to emphasize
-    priority_topics: Mapped[dict] = mapped_column(
-        JSON, default=list  # e.g. ["tech startups", "AI news"]
     )
 
     # Voice settings
@@ -113,6 +110,9 @@ class UserSettings(Base):
 
     # Writing style - affects the tone and style of the generated script
     writing_style: Mapped[str] = mapped_column(String(50), default="good_morning_america")
+
+    # User's timezone for all date/time operations (IANA timezone string)
+    timezone: Mapped[str] = mapped_column(String(50), default="America/New_York")
 
 
 class Schedule(Base):
@@ -173,7 +173,6 @@ async def migrate_db():
     expected_columns = {
         "user_settings": {
             "news_exclusions": ("TEXT", "[]"),  # JSON stored as TEXT in SQLite
-            "priority_topics": ("TEXT", "[]"),
             "voice_id": ("VARCHAR(100)", "'pNInz6obpgDQGcFmaJgB'"),
             "voice_style": ("VARCHAR(50)", "'energetic'"),
             "voice_speed": ("FLOAT", "1.1"),
@@ -181,10 +180,13 @@ async def migrate_db():
             "include_music": ("BOOLEAN", "0"),
             "tts_provider": ("VARCHAR(50)", "'elevenlabs'"),
             "writing_style": ("VARCHAR(50)", "'good_morning_america'"),
+            "briefing_length": ("VARCHAR(10)", "'short'"),  # "short" or "long"
+            "timezone": ("VARCHAR(50)", "'America/New_York'"),  # IANA timezone string
         },
         "briefings": {
             "generation_errors": ("TEXT", "'[]'"),  # JSON list of errors
             "pending_action": ("TEXT", "NULL"),  # JSON pending action or null
+            "rendered_prompts": ("TEXT", "NULL"),  # JSON rendered prompts for admin viewing
         },
         "schedules": {},
     }
@@ -209,6 +211,43 @@ async def migrate_db():
                         )
                     except Exception as e:
                         print(f"[Migration] Error adding column {col_name}: {e}")
+
+        # Migrate duration_minutes to briefing_length if duration_minutes column exists
+        # IMPORTANT: Only update NULL values to avoid overwriting user's manual changes
+        result = await conn.execute(text("PRAGMA table_info(user_settings)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "duration_minutes" in columns and "briefing_length" in columns:
+            # Check if any rows need migration (briefing_length is NULL)
+            check_result = await conn.execute(text(
+                "SELECT COUNT(*) FROM user_settings WHERE briefing_length IS NULL"
+            ))
+            null_count = check_result.scalar()
+            if null_count and null_count > 0:
+                print(f"[Migration] Converting duration_minutes to briefing_length for {null_count} rows")
+                # <= 7 minutes -> "short", > 7 minutes -> "long"
+                await conn.execute(text("""
+                    UPDATE user_settings
+                    SET briefing_length = CASE
+                        WHEN duration_minutes <= 7 THEN 'short'
+                        ELSE 'long'
+                    END
+                    WHERE briefing_length IS NULL
+                """))
+
+        # Migrate timezone from Schedule to UserSettings if Schedule has non-default timezone
+        if "timezone" in columns:
+            try:
+                result = await conn.execute(text(
+                    "SELECT timezone FROM schedules WHERE timezone != 'America/New_York' LIMIT 1"
+                ))
+                schedule_tz = result.scalar()
+                if schedule_tz:
+                    print(f"[Migration] Copying timezone '{schedule_tz}' from Schedule to UserSettings")
+                    await conn.execute(text(
+                        "UPDATE user_settings SET timezone = :tz WHERE timezone = 'America/New_York'"
+                    ), {"tz": schedule_tz})
+            except Exception as e:
+                print(f"[Migration] Error migrating timezone: {e}")
 
 
 async def init_db():

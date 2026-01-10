@@ -19,8 +19,8 @@ services:
     volumes:
       # Persistent storage for database and audio files
       - morning_drive_data:/app/data
-      # Custom audio assets (optional - for custom intro/outro music)
-      - ./assets:/app/assets:ro
+      # Custom audio assets and music cache (needs write access for MinIO downloads)
+      - ./assets:/app/assets
     environment:
       # Required API keys (set in .env file)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}

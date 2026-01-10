@@ -62,6 +62,8 @@ export interface GenerationStatus {
   pending_action?: PendingAction;
 }
 
+export type BriefingLength = 'short' | 'long';
+
 export interface UserSettings {
   news_topics: string[];
   news_sources: string[];
@@ -69,11 +71,10 @@ export interface UserSettings {
   sports_leagues: string[];
   weather_locations: WeatherLocation[];
   fun_segments: string[];
-  duration_minutes: number;
+  briefing_length: BriefingLength;
   include_intro_music: boolean;
   include_transitions: boolean;
   news_exclusions: string[];
-  priority_topics: string[];
   voice_id: string;
   voice_style: string;
   voice_speed: number;
@@ -210,3 +211,16 @@ export const SEGMENT_TYPES = [
 ] as const;
 
 export const DEFAULT_SEGMENT_ORDER = ['news', 'sports', 'weather', 'fun'];
+
+export const BRIEFING_LENGTHS = [
+  {
+    id: 'short' as BriefingLength,
+    label: 'Short',
+    description: '~5 minutes • Key headlines, favorite teams only',
+  },
+  {
+    id: 'long' as BriefingLength,
+    label: 'Long',
+    description: '~10 minutes • More stories, full sports coverage',
+  },
+] as const;

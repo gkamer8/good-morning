@@ -1,0 +1,20 @@
+Based on this morning briefing content, generate a very brief title (2-5 words, comma-separated) that captures the SPECIFIC topics discussed.
+
+IMPORTANT RULES:
+- Do NOT use generic section names like "Weather", "Sports", "News", "Markets"
+- Instead use SPECIFIC topics: team names, company names, events, places
+- Separate topics with commas
+- Just output the words, no quotes or extra punctuation
+- Sports outcomes (wins, losses, scores) should always come LAST in the title
+
+Content: {{ content_summary }}
+
+Examples of good titles:
+- Tesla Earnings, Lakers Win
+- Fed Rates, NYC Snow, Giants Victory
+- Apple Event, Heat Wave, Celtics Win
+- Boeing Strike, Dodgers Trade
+
+Examples of BAD titles (too generic):
+- Weather Update, Sports News
+- Market Recap, News Roundup
