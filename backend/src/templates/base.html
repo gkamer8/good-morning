@@ -33,6 +33,9 @@
     <div class="footer">
         <p>Morning Drive - AI-powered personalized morning briefings</p>
         <p><a href="https://github.com/gkamer8/good-morning">View on GitHub</a></p>
+        {% if backend_version %}
+        <p class="version">Backend v{{ backend_version }}</p>
+        {% endif %}
     </div>
     {% endblock %}
 
