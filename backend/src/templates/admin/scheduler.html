@@ -303,7 +303,7 @@
                 'title_prompt': 'Title Generation Prompt'
             };
 
-            // Render each prompt section
+            // Render main prompt sections
             for (const key of promptOrder) {
                 if (prompts[key]) {
                     const isLong = prompts[key].length > 500;
@@ -316,6 +316,64 @@
                             <div class="prompt-section-body">${escapeHtml(prompts[key])}</div>
                         </div>
                     `;
+                }
+            }
+
+            // Find and render deep dive sections
+            const deepDiveKeys = Object.keys(prompts).filter(k => k.startsWith('deep_dive_')).sort();
+            if (deepDiveKeys.length > 0) {
+                html += '<h4 style="margin: 20px 0 10px; color: #4f46e5;">Deep Dive Research</h4>';
+
+                // Group by deep dive number
+                const deepDiveGroups = {};
+                deepDiveKeys.forEach(key => {
+                    const match = key.match(/deep_dive_(\d+)_(.*)/);
+                    if (match) {
+                        const num = match[1];
+                        const type = match[2];
+                        if (!deepDiveGroups[num]) deepDiveGroups[num] = {};
+                        deepDiveGroups[num][type] = prompts[key];
+                    }
+                });
+
+                for (const num of Object.keys(deepDiveGroups).sort()) {
+                    const group = deepDiveGroups[num];
+                    html += `<div style="margin-bottom: 15px; border: 2px solid #4f46e5; border-radius: 8px; overflow: hidden;">`;
+                    html += `<div style="background: #4f46e5; color: white; padding: 8px 15px; font-weight: bold;">Deep Dive #${num}</div>`;
+
+                    if (group.prompt) {
+                        html += `
+                            <div class="prompt-section collapsed">
+                                <div class="prompt-section-header" onclick="togglePromptSection(this)">
+                                    <span>Prompt</span>
+                                    <span style="font-weight: normal; font-size: 0.85rem;">Click to expand</span>
+                                </div>
+                                <div class="prompt-section-body">${escapeHtml(group.prompt)}</div>
+                            </div>
+                        `;
+                    }
+                    if (group.response) {
+                        html += `
+                            <div class="prompt-section collapsed">
+                                <div class="prompt-section-header" onclick="togglePromptSection(this)">
+                                    <span>Agent Conversation (tool calls, search results, etc.)</span>
+                                    <span style="font-weight: normal; font-size: 0.85rem;">Click to expand</span>
+                                </div>
+                                <div class="prompt-section-body">${escapeHtml(group.response)}</div>
+                            </div>
+                        `;
+                    }
+                    if (group.error) {
+                        html += `
+                            <div class="prompt-section" style="border-color: #ef4444;">
+                                <div class="prompt-section-header" style="background: #fef2f2; color: #dc2626;">
+                                    <span>Error</span>
+                                </div>
+                                <div class="prompt-section-body" style="background: #fef2f2;">${escapeHtml(group.error)}</div>
+                            </div>
+                        `;
+                    }
+                    html += `</div>`;
                 }
             }
 

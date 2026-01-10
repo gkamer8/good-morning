@@ -104,7 +104,9 @@ Return ONLY the script text that should be spoken on air."""
         )
 
         # Log the response
-        conversation_log.append(f"\nASSISTANT (stop_reason={response.stop_reason}):")
+        conversation_log.append(f"\n{'='*60}")
+        conversation_log.append(f"ASSISTANT (iteration={iteration}, stop_reason={response.stop_reason}):")
+        conversation_log.append(f"{'='*60}")
 
         # Check if we have tool use
         has_tool_use = False
@@ -114,21 +116,58 @@ Return ONLY the script text that should be spoken on air."""
         for block in response.content:
             if block.type == "text":
                 final_text += block.text
-                conversation_log.append(f"TEXT: {block.text[:500]}...")
+                conversation_log.append(f"\n[TEXT OUTPUT]")
+                conversation_log.append(block.text)
+
             elif block.type == "tool_use":
                 has_tool_use = True
-                conversation_log.append(f"TOOL_USE: {block.name} (id={block.id})")
-                if hasattr(block, "input"):
-                    conversation_log.append(f"  Input: {str(block.input)[:200]}...")
+                conversation_log.append(f"\n[TOOL_USE: {block.name}]")
+                if hasattr(block, "input") and block.input:
+                    conversation_log.append(f"Input: {block.input}")
+
             elif block.type == "server_tool_use":
                 has_tool_use = True
-                conversation_log.append(f"SERVER_TOOL_USE: {block.name} (id={block.id})")
-                if hasattr(block, "input"):
-                    conversation_log.append(f"  Input: {str(block.input)[:200]}...")
+                tool_input = getattr(block, "input", {}) or {}
+                conversation_log.append(f"\n[SERVER_TOOL_USE: {block.name}]")
+                if block.name == "web_search" and tool_input:
+                    query = tool_input.get("query", "")
+                    conversation_log.append(f"  Search Query: \"{query}\"")
+                elif block.name == "web_fetch" and tool_input:
+                    url = tool_input.get("url", "")
+                    conversation_log.append(f"  Fetching URL: {url}")
+                else:
+                    conversation_log.append(f"  Input: {tool_input}")
+
             elif block.type == "web_search_tool_result":
-                conversation_log.append(f"WEB_SEARCH_RESULT: {len(getattr(block, 'content', []))} results")
+                content = getattr(block, "content", []) or []
+                conversation_log.append(f"\n[WEB_SEARCH_RESULTS: {len(content)} results]")
+                for i, result in enumerate(content[:10]):  # Show up to 10 results
+                    if hasattr(result, "type"):
+                        if result.type == "web_search_result":
+                            title = getattr(result, "title", "")
+                            url = getattr(result, "url", "")
+                            snippet = getattr(result, "snippet", "")[:200] if hasattr(result, "snippet") else ""
+                            conversation_log.append(f"  {i+1}. {title}")
+                            conversation_log.append(f"     URL: {url}")
+                            if snippet:
+                                conversation_log.append(f"     Snippet: {snippet}...")
+
             elif block.type == "web_fetch_tool_result":
-                conversation_log.append(f"WEB_FETCH_RESULT: content received")
+                content = getattr(block, "content", None)
+                conversation_log.append(f"\n[WEB_FETCH_RESULT]")
+                if content:
+                    # Try to get text length
+                    if isinstance(content, str):
+                        conversation_log.append(f"  Content length: {len(content)} chars")
+                        conversation_log.append(f"  Preview: {content[:500]}...")
+                    elif isinstance(content, list):
+                        conversation_log.append(f"  Content blocks: {len(content)}")
+                        for item in content[:3]:
+                            if hasattr(item, "text"):
+                                conversation_log.append(f"  Preview: {item.text[:300]}...")
+                                break
+                else:
+                    conversation_log.append(f"  (No content received)")
 
         # If stop reason is "end_turn" and we have text, we're done
         if response.stop_reason == "end_turn" and final_text:
