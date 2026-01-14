@@ -78,6 +78,7 @@ export interface UserSettings {
   voice_id: string;
   voice_style: string;
   voice_speed: number;
+  tts_provider: string;
   segment_order: string[];
   include_music: boolean;
   writing_style: string;
@@ -186,11 +187,29 @@ export const DAYS_OF_WEEK = [
   { id: 6, label: 'Sunday', short: 'Sun' },
 ] as const;
 
-export const VOICE_OPTIONS = [
+// ElevenLabs voice options (stock voices)
+export const ELEVENLABS_VOICE_OPTIONS = [
   { id: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel', description: 'Female, American' },
   { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam', description: 'Male, American' },
   { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold', description: 'Male, American (mature)' },
 ] as const;
+
+// Chatterbox voice options (self-hosted TTS)
+export const CHATTERBOX_VOICE_OPTIONS = [
+  { id: 'timmy', label: 'Timmy', description: 'Custom voice clone' },
+  { id: 'austin', label: 'Austin', description: 'Male, American' },
+  { id: 'alice', label: 'Alice', description: 'Female, American' },
+] as const;
+
+// Legacy alias for backwards compatibility
+export const VOICE_OPTIONS = ELEVENLABS_VOICE_OPTIONS;
+
+// Default voice IDs per provider
+export const DEFAULT_VOICE_IDS = {
+  elevenlabs: 'pNInz6obpgDQGcFmaJgB',  // Adam
+  chatterbox: 'timmy',
+  edge: 'en-US-GuyNeural',  // Not selectable, but here for reference
+} as const;
 
 export const VOICE_STYLES = [
   { id: 'energetic', label: 'Energetic', description: 'Upbeat morning show vibe' },

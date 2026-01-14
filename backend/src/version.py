@@ -6,4 +6,4 @@ to production. The version is displayed in the admin panel.
 
 # Version should be updated during production deployment
 # Format: MAJOR.MINOR.PATCH (semantic versioning)
-VERSION = "1.0.0"
+VERSION = "1.2.2"

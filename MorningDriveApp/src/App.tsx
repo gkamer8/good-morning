@@ -21,6 +21,12 @@ LogBox.ignoreLogs([
   'clearSleepTimer',
   'The Objective-C',
   'JS method will not be available',
+  // Apple Auth and Keychain warnings
+  'RNAppleAuthentication',
+  'RNKeychain',
+  // Modal and presentation warnings
+  'Modal',
+  'presentationStyle',
 ]);
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -29,9 +35,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HomeScreen } from './screens/HomeScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { PlayerScreen } from './screens/PlayerScreen';
+import { LoginScreen } from './screens/LoginScreen';
 import { setupPlayer } from './services/audio';
 import { api } from './services/api';
-import { useAppConfigStore, useBriefingsStore } from './store';
+import { authService } from './services/auth';
+import { useAppConfigStore, useBriefingsStore, useAuthStore } from './store';
 import { setupCarPlay, updateBriefingsList } from './services/carplay';
 
 // Create query client
@@ -49,6 +57,8 @@ const Stack = createNativeStackNavigator();
 function AppContent() {
   const { serverUrl, setConnected, _hasHydrated } = useAppConfigStore();
   const { briefings, setCurrentBriefing } = useBriefingsStore();
+  const { isAuthenticated, isInitialized, setAuthenticated, setInitialized } =
+    useAuthStore();
   const [isApiReady, setApiReady] = useState(false);
 
   const handleBriefingSelect = useCallback(
@@ -58,7 +68,13 @@ function AppContent() {
     [setCurrentBriefing]
   );
 
-  // Wait for Zustand to hydrate, then initialize API with the correct URL
+  const handleLoginSuccess = useCallback(() => {
+    setAuthenticated(true);
+    // Invalidate all queries to refresh data with new user
+    queryClient.invalidateQueries();
+  }, [setAuthenticated]);
+
+  // Wait for Zustand to hydrate, then initialize API and auth
   useEffect(() => {
     if (!_hasHydrated) return;
 
@@ -67,6 +83,11 @@ function AppContent() {
         // Set API base URL directly from hydrated Zustand store
         // This is the persisted URL the user configured
         await api.setBaseUrl(serverUrl);
+
+        // Initialize auth service and check for existing tokens
+        const hasTokens = await authService.init();
+        setAuthenticated(hasTokens);
+        setInitialized(true);
 
         // Mark API as ready BEFORE health check so queries can start
         setApiReady(true);
@@ -91,12 +112,13 @@ function AppContent() {
       } catch (error) {
         console.error('App initialization failed:', error);
         setConnected(false);
+        setInitialized(true);
         setApiReady(true);
       }
     };
 
     init();
-  }, [_hasHydrated, serverUrl, setConnected, briefings, handleBriefingSelect]);
+  }, [_hasHydrated, serverUrl, setConnected, setAuthenticated, setInitialized, briefings, handleBriefingSelect]);
 
   // Sync API URL when serverUrl changes in Zustand store
   useEffect(() => {
@@ -115,12 +137,22 @@ function AppContent() {
     }
   }, [briefings, handleBriefingSelect, isApiReady]);
 
-  // Show loading screen until Zustand hydrates and API is initialized
-  if (!_hasHydrated || !isApiReady) {
+  // Show loading screen until Zustand hydrates, API is initialized, and auth is checked
+  if (!_hasHydrated || !isApiReady || !isInitialized) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4f46e5" />
       </View>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <>
+        <StatusBar barStyle="dark-content" />
+        <LoginScreen onLoginSuccess={handleLoginSuccess} />
+      </>
     );
   }
 

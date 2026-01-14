@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router
 from src.api.admin import router as admin_router
+from src.api.auth_routes import router as auth_router
 from src.api.website import router as website_router
 from src.config import get_settings
 from src.storage.database import init_db
@@ -96,6 +97,9 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router, prefix="/api")
+
+# Include auth routes
+app.include_router(auth_router, prefix="/api")
 
 # Include admin routes
 app.include_router(admin_router, prefix="/admin")

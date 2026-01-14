@@ -158,8 +158,8 @@ class SettingsBase(BaseModel):
 
     # Voice settings
     voice_id: str = Field(
-        default="pNInz6obpgDQGcFmaJgB",  # Adam - ElevenLabs voice ID
-        description="ElevenLabs voice ID",
+        default="timmy",  # Default Chatterbox voice
+        description="Voice ID (provider-specific: Chatterbox uses 'timmy', 'austin', 'alice'; ElevenLabs uses their voice IDs)",
     )
     voice_style: str = Field(
         default="energetic",
@@ -174,8 +174,8 @@ class SettingsBase(BaseModel):
 
     # TTS Provider
     tts_provider: str = Field(
-        default="elevenlabs",
-        description="TTS provider: 'elevenlabs' (paid, high quality) or 'edge' (free, Microsoft Edge TTS)",
+        default="chatterbox",
+        description="TTS provider: 'chatterbox' (self-hosted), 'elevenlabs' (paid), or 'edge' (free, Microsoft)",
     )
 
     # Segment ordering

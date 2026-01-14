@@ -40,6 +40,12 @@ class Settings(BaseSettings):
         "2TiFwsBtPecBlV5028ac",  # Timmy C
     ]
 
+    # Chatterbox TTS settings (self-hosted)
+    # Docker URL uses host.docker.internal to access host machine from container
+    chatterbox_url: str = "http://host.docker.internal:8004"
+    # Dev URL for local development (when not running backend in Docker)
+    chatterbox_dev_url: str = "http://altair.local:8004"
+
     # MinIO settings for music storage
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
@@ -58,6 +64,17 @@ class Settings(BaseSettings):
 
     # Admin interface
     admin_password: str = "changeme"  # Change this in production via ADMIN_PASSWORD env var
+
+    # JWT Authentication
+    jwt_secret_key: str = ""  # REQUIRED: Set via JWT_SECRET_KEY env var (generate with: openssl rand -hex 32)
+    jwt_access_token_expire_hours: int = 24
+    jwt_refresh_token_expire_days: int = 30
+
+    # Apple Sign-In
+    apple_bundle_ids: list[str] = [
+        "com.g0rdon.morning.dev",  # iOS dev app
+        "com.g0rdon.morning",      # iOS production app
+    ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

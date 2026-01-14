@@ -3,9 +3,9 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, JSON, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from src.config import get_settings
 
@@ -16,12 +16,61 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    """A registered user."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    apple_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Relationships
+    settings: Mapped[Optional["UserSettings"]] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    briefings: Mapped[list["Briefing"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    schedules: Mapped[list["Schedule"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class InviteCode(Base):
+    """An invite code for user registration."""
+
+    __tablename__ = "invite_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    used_by_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+
 class Briefing(Base):
     """A generated morning briefing."""
 
     __tablename__ = "briefings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -42,6 +91,9 @@ class Briefing(Base):
     # Rendered prompts for debugging/viewing in admin panel
     rendered_prompts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Relationship back to user
+    user: Mapped[Optional["User"]] = relationship(back_populates="briefings")
+
 
 class UserSettings(Base):
     """User preferences and settings."""
@@ -49,6 +101,9 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, unique=True, index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -93,12 +148,12 @@ class UserSettings(Base):
     )
 
     # Voice settings
-    voice_id: Mapped[str] = mapped_column(String(100), default="pNInz6obpgDQGcFmaJgB")  # Adam - ElevenLabs voice ID
+    voice_id: Mapped[str] = mapped_column(String(100), default="timmy")  # Chatterbox voice ID
     voice_style: Mapped[str] = mapped_column(String(50), default="energetic")  # energetic, calm, professional
     voice_speed: Mapped[float] = mapped_column(Float, default=1.1)  # 0.5-2.0, slightly faster for energy
 
-    # TTS Provider: "elevenlabs" (paid, high quality) or "edge" (free, Microsoft Edge TTS)
-    tts_provider: Mapped[str] = mapped_column(String(50), default="elevenlabs")
+    # TTS Provider: "chatterbox" (self-hosted), "elevenlabs" (paid), or "edge" (free, Microsoft)
+    tts_provider: Mapped[str] = mapped_column(String(50), default="chatterbox")
 
     # Segment ordering - controls the order of content in briefings
     segment_order: Mapped[dict] = mapped_column(
@@ -117,6 +172,9 @@ class UserSettings(Base):
     # Deep dive feature - enables 1-2 in-depth news segments with web research
     deep_dive_enabled: Mapped[bool] = mapped_column(default=False)
 
+    # Relationship back to user
+    user: Mapped[Optional["User"]] = relationship(back_populates="settings")
+
 
 class Schedule(Base):
     """Briefing generation schedule."""
@@ -124,6 +182,9 @@ class Schedule(Base):
     __tablename__ = "schedules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
     enabled: Mapped[bool] = mapped_column(default=True)
     days_of_week: Mapped[dict] = mapped_column(
         JSON, default=lambda: [0, 1, 2, 3, 4]  # Monday-Friday
@@ -131,6 +192,21 @@ class Schedule(Base):
     time_hour: Mapped[int] = mapped_column(Integer, default=6)  # 6 AM
     time_minute: Mapped[int] = mapped_column(Integer, default=0)
     timezone: Mapped[str] = mapped_column(String(50), default="America/New_York")
+
+    # Relationship back to user
+    user: Mapped[Optional["User"]] = relationship(back_populates="schedules")
+
+
+class AdminSettings(Base):
+    """Global admin settings (key-value store)."""
+
+    __tablename__ = "admin_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class MusicPiece(Base):
@@ -175,6 +251,7 @@ async def migrate_db():
     # Define expected columns for each table with their SQLite types and defaults
     expected_columns = {
         "user_settings": {
+            "user_id": ("INTEGER", "NULL"),  # FK to users table
             "news_exclusions": ("TEXT", "[]"),  # JSON stored as TEXT in SQLite
             "voice_id": ("VARCHAR(100)", "'pNInz6obpgDQGcFmaJgB'"),
             "voice_style": ("VARCHAR(50)", "'energetic'"),
@@ -188,11 +265,14 @@ async def migrate_db():
             "deep_dive_enabled": ("BOOLEAN", "0"),  # Enable deep dive research for news
         },
         "briefings": {
+            "user_id": ("INTEGER", "NULL"),  # FK to users table
             "generation_errors": ("TEXT", "'[]'"),  # JSON list of errors
             "pending_action": ("TEXT", "NULL"),  # JSON pending action or null
             "rendered_prompts": ("TEXT", "NULL"),  # JSON rendered prompts for admin viewing
         },
-        "schedules": {},
+        "schedules": {
+            "user_id": ("INTEGER", "NULL"),  # FK to users table
+        },
     }
 
     async with engine.begin() as conn:
@@ -263,21 +343,8 @@ async def init_db():
     # Then run migrations to add missing columns to existing tables
     await migrate_db()
 
-    # Create default settings if not exists
-    async with async_session() as session:
-        result = await session.execute(
-            UserSettings.__table__.select().limit(1)
-        )
-        if not result.first():
-            session.add(UserSettings())
-            await session.commit()
-
-        result = await session.execute(
-            Schedule.__table__.select().limit(1)
-        )
-        if not result.first():
-            session.add(Schedule())
-            await session.commit()
+    # Note: Settings and schedules are now created per-user during registration.
+    # No default global records are created.
 
 
 async def get_session() -> AsyncSession:

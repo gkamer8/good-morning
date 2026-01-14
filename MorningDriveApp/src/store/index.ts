@@ -7,6 +7,35 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Briefing, BriefingSegment, UserSettings, Schedule } from '../types';
 
+// === Auth Store ===
+
+interface AuthState {
+  isAuthenticated: boolean;
+  isInitialized: boolean;
+  userId: number | null;
+  displayName: string | null;
+  setAuthenticated: (authenticated: boolean) => void;
+  setInitialized: (initialized: boolean) => void;
+  setUser: (userId: number | null, displayName: string | null) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>()((set) => ({
+  isAuthenticated: false,
+  isInitialized: false,
+  userId: null,
+  displayName: null,
+  setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
+  setInitialized: (isInitialized) => set({ isInitialized }),
+  setUser: (userId, displayName) => set({ userId, displayName }),
+  logout: () =>
+    set({
+      isAuthenticated: false,
+      userId: null,
+      displayName: null,
+    }),
+}));
+
 // === Settings Store ===
 
 interface SettingsState {

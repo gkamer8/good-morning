@@ -9,24 +9,32 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 
 from src.agents.orchestrator import generate_briefing_task
-from src.storage.database import Briefing, Schedule, UserSettings, async_session, init_db
+from src.storage.database import Briefing, Schedule, User, UserSettings, async_session, init_db
 from src.utils.timezone import get_user_now
 
 
-async def create_scheduled_briefing():
-    """Create a briefing based on the schedule."""
-    # Get user timezone for the title
+async def create_scheduled_briefing_for_user(user_id: int):
+    """Create a briefing for a specific user based on their schedule."""
+    # Get user's timezone
     async with async_session() as session:
-        result = await session.execute(select(UserSettings).limit(1))
+        result = await session.execute(
+            select(UserSettings).where(UserSettings.user_id == user_id)
+        )
         user_settings = result.scalar_one_or_none()
         user_tz = getattr(user_settings, 'timezone', None) or "America/New_York"
 
-    user_now = get_user_now(user_tz)
-    print(f"[{user_now}] Starting scheduled briefing generation...")
+        # Get user info for logging
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        user_name = user.email or user.display_name or f"User #{user_id}" if user else f"User #{user_id}"
 
-    # Create a new briefing record
+    user_now = get_user_now(user_tz)
+    print(f"[{user_now}] Starting scheduled briefing generation for {user_name}...")
+
+    # Create a new briefing record for this user
     async with async_session() as session:
         briefing = Briefing(
+            user_id=user_id,
             title=f"Morning Briefing - {user_now.strftime('%B %d, %Y')}",
             duration_seconds=0,
             audio_filename="",
@@ -41,60 +49,73 @@ async def create_scheduled_briefing():
 
     # Generate the briefing
     try:
-        await generate_briefing_task(briefing_id=briefing_id)
-        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} completed successfully!")
+        await generate_briefing_task(briefing_id=briefing_id, user_id=user_id)
+        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} for {user_name} completed successfully!")
     except Exception as e:
-        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} failed: {e}")
+        print(f"[{get_user_now(user_tz)}] Scheduled briefing {briefing_id} for {user_name} failed: {e}")
 
 
 async def setup_scheduler():
-    """Set up the scheduler based on user settings."""
+    """Set up the scheduler based on all users' schedules."""
     # Initialize database
     await init_db()
 
-    # Get schedule and user settings
+    # Get all enabled schedules with user info
     async with async_session() as session:
-        result = await session.execute(select(Schedule).limit(1))
-        schedule = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Schedule, User, UserSettings)
+            .outerjoin(User, Schedule.user_id == User.id)
+            .outerjoin(UserSettings, Schedule.user_id == UserSettings.user_id)
+            .where(Schedule.enabled == True)
+        )
+        schedules_with_users = result.all()
 
-        result = await session.execute(select(UserSettings).limit(1))
-        user_settings = result.scalar_one_or_none()
-
-    if not schedule or not schedule.enabled:
-        print("Scheduler is disabled or not configured.")
+    if not schedules_with_users:
+        print("No enabled schedules found.")
         return None
-
-    # Use UserSettings.timezone as primary, fall back to Schedule.timezone
-    user_tz = (
-        getattr(user_settings, 'timezone', None) or
-        schedule.timezone or
-        "America/New_York"
-    )
 
     # Create scheduler
     scheduler = AsyncIOScheduler()
 
-    # Convert days of week to cron format (0=Monday in our DB, 0=Monday in APScheduler)
-    days_str = ",".join(str(d) for d in schedule.days_of_week)
+    # Add a job for each user's schedule
+    for schedule, user, user_settings in schedules_with_users:
+        # Skip schedules without user_id (legacy data)
+        if not schedule.user_id:
+            print(f"Skipping schedule {schedule.id} - no user_id (legacy)")
+            continue
 
-    # Add the job
-    trigger = CronTrigger(
-        hour=schedule.time_hour,
-        minute=schedule.time_minute,
-        day_of_week=days_str,
-        timezone=ZoneInfo(user_tz),
-    )
+        # Use UserSettings.timezone as primary, fall back to Schedule.timezone
+        user_tz = (
+            getattr(user_settings, 'timezone', None) if user_settings else None
+        ) or schedule.timezone or "America/New_York"
 
-    scheduler.add_job(
-        create_scheduled_briefing,
-        trigger,
-        id="morning_briefing",
-        name="Morning Briefing Generation",
-        replace_existing=True,
-    )
+        # Convert days of week to cron format
+        days_str = ",".join(str(d) for d in schedule.days_of_week)
 
-    print(f"Scheduler configured: {schedule.time_hour:02d}:{schedule.time_minute:02d} "
-          f"on days {schedule.days_of_week} ({user_tz})")
+        # Create trigger for this user
+        trigger = CronTrigger(
+            hour=schedule.time_hour,
+            minute=schedule.time_minute,
+            day_of_week=days_str,
+            timezone=ZoneInfo(user_tz),
+        )
+
+        # User identifier for job naming
+        user_name = user.email or user.display_name or f"user_{schedule.user_id}" if user else f"user_{schedule.user_id}"
+        job_id = f"morning_briefing_user_{schedule.user_id}"
+
+        # Add the job for this user
+        scheduler.add_job(
+            create_scheduled_briefing_for_user,
+            trigger,
+            args=[schedule.user_id],
+            id=job_id,
+            name=f"Morning Briefing - {user_name}",
+            replace_existing=True,
+        )
+
+        print(f"Scheduler configured for {user_name}: {schedule.time_hour:02d}:{schedule.time_minute:02d} "
+              f"on days {schedule.days_of_week} ({user_tz})")
 
     return scheduler
 
@@ -117,7 +138,7 @@ async def main():
             print("\nShutting down scheduler...")
             scheduler.shutdown()
     else:
-        print("Scheduler not started (disabled or not configured).")
+        print("Scheduler not started (no enabled schedules).")
 
 
 if __name__ == "__main__":

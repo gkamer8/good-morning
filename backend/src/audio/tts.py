@@ -141,12 +141,47 @@ EDGE_VOICE_PROFILES = {
 DEFAULT_EDGE_VOICE = "en-US-GuyNeural"
 
 
+# Chatterbox voice profiles (self-hosted TTS)
+# Maps voice IDs to Chatterbox API parameters
+CHATTERBOX_VOICE_PROFILES = {
+    # Host voice - uses voice cloning with custom reference
+    "host": {
+        "voice_mode": "clone",
+        "reference_audio_filename": "TimmyVoice.mp3",
+        "display_name": "Timmy",
+        "description": "Custom voice clone",
+    },
+    "timmy": {
+        "voice_mode": "clone",
+        "reference_audio_filename": "TimmyVoice.mp3",
+        "display_name": "Timmy",
+        "description": "Custom voice clone",
+    },
+    # Predefined voices
+    "austin": {
+        "voice_mode": "predefined",
+        "predefined_voice_id": "Austin.wav",
+        "display_name": "Austin",
+        "description": "Male, American",
+    },
+    "alice": {
+        "voice_mode": "predefined",
+        "predefined_voice_id": "Alice.wav",
+        "display_name": "Alice",
+        "description": "Female, American",
+    },
+}
+
+# Default Chatterbox voice for host
+DEFAULT_CHATTERBOX_VOICE = "timmy"
+
+
 def match_voice_to_profile(profile: Optional[str], provider: str = "elevenlabs") -> str:
     """Match a demographic profile description to a voice ID.
 
     Args:
         profile: Demographic description (e.g., "male_american_40s")
-        provider: TTS provider ("elevenlabs" or "edge")
+        provider: TTS provider ("elevenlabs", "edge", or "chatterbox")
 
     Returns:
         Voice ID appropriate for the provider
@@ -157,6 +192,11 @@ def match_voice_to_profile(profile: Optional[str], provider: str = "elevenlabs")
     if provider == "edge":
         profiles = EDGE_VOICE_PROFILES
         default_voice = DEFAULT_EDGE_VOICE
+    elif provider == "chatterbox":
+        # Chatterbox uses simple voice IDs, not demographic profiles
+        # Just return the default voice for non-host voices
+        profiles = {"host": DEFAULT_CHATTERBOX_VOICE}
+        default_voice = DEFAULT_CHATTERBOX_VOICE
     else:
         profiles = VOICE_PROFILES
         default_voice = settings.elevenlabs_host_voice_id
@@ -171,7 +211,11 @@ def match_voice_to_profile(profile: Optional[str], provider: str = "elevenlabs")
     if profile_lower in profiles:
         return profiles[profile_lower]
 
-    # Try partial matching
+    # For chatterbox, just return default if no exact match
+    if provider == "chatterbox":
+        return default_voice
+
+    # Try partial matching (for ElevenLabs and Edge)
     best_match = None
     best_score = 0
 
@@ -222,6 +266,85 @@ async def generate_audio_edge_tts(
     # Generate audio
     communicate = edge_tts.Communicate(text, voice, rate=rate)
     await communicate.save(str(output_path))
+
+    # Calculate duration
+    from pydub import AudioSegment as PydubSegment
+    audio = PydubSegment.from_mp3(output_path)
+    duration_seconds = len(audio) / 1000.0
+
+    return duration_seconds
+
+
+async def generate_audio_chatterbox(
+    text: str,
+    voice_id: str,
+    output_path: Path,
+) -> float:
+    """Generate audio using Chatterbox TTS (self-hosted).
+
+    Args:
+        text: Text to convert to speech
+        voice_id: Chatterbox voice ID (e.g., "timmy", "austin", "alice")
+        output_path: Path to save the audio file
+
+    Returns:
+        Duration in seconds
+    """
+    import httpx
+
+    settings = get_settings()
+
+    # Get voice profile configuration
+    voice_config = CHATTERBOX_VOICE_PROFILES.get(
+        voice_id.lower(),
+        CHATTERBOX_VOICE_PROFILES[DEFAULT_CHATTERBOX_VOICE]
+    )
+
+    # Build request payload
+    # Use split_text with max chunk_size (500) to handle long text while minimizing
+    # chunk boundaries that can cause artifacts. Short text won't be split anyway.
+    payload = {
+        "text": text,
+        "voice_mode": voice_config["voice_mode"],
+        "output_format": "mp3",
+        "split_text": True,
+        "chunk_size": 500,  # Max allowed - fewer chunks = fewer potential artifacts
+        # Voice generation parameters
+        "temperature": 0.7,
+        "exaggeration": 0.7,
+        "cfg_weight": 0.5,
+        "seed": 1986,
+    }
+
+    # Add voice-specific parameters
+    if voice_config["voice_mode"] == "clone":
+        payload["reference_audio_filename"] = voice_config["reference_audio_filename"]
+    else:
+        payload["predefined_voice_id"] = voice_config["predefined_voice_id"]
+
+    # Determine URL - use dev URL if not running in Docker (check if host.docker.internal resolves)
+    chatterbox_url = settings.chatterbox_url
+
+    # Try to call the Chatterbox API
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            response = await client.post(
+                f"{chatterbox_url}/tts",
+                json=payload,
+            )
+            response.raise_for_status()
+        except httpx.ConnectError:
+            # Fall back to dev URL if Docker URL fails
+            chatterbox_url = settings.chatterbox_dev_url
+            response = await client.post(
+                f"{chatterbox_url}/tts",
+                json=payload,
+            )
+            response.raise_for_status()
+
+        # Write audio to file
+        with open(output_path, "wb") as f:
+            f.write(response.content)
 
     # Calculate duration
     from pydub import AudioSegment as PydubSegment
@@ -331,7 +454,7 @@ async def generate_audio_for_script(
         voice_id: Override voice ID for host (uses settings default if None)
         voice_style: Style of delivery (energetic, calm, professional)
         voice_speed: Speed multiplier (1.0 = normal)
-        tts_provider: TTS provider ("elevenlabs" or "edge")
+        tts_provider: TTS provider ("elevenlabs", "edge", or "chatterbox")
 
     Returns:
         TTSResult with audio segments, any errors, and validation info
@@ -345,6 +468,9 @@ async def generate_audio_for_script(
             raise ValueError("ELEVENLABS_API_KEY not configured")
         client = ElevenLabs(api_key=settings.elevenlabs_api_key)
         host_voice_id = voice_id or settings.elevenlabs_host_voice_id
+    elif tts_provider == "chatterbox":
+        # Chatterbox - self-hosted, no API key needed
+        host_voice_id = voice_id or DEFAULT_CHATTERBOX_VOICE
     else:
         # Edge TTS - no API key needed
         host_voice_id = EDGE_VOICE_PROFILES.get("host", DEFAULT_EDGE_VOICE)
@@ -398,6 +524,12 @@ async def generate_audio_for_script(
                             voice=current_voice_id,
                             output_path=output_path,
                             voice_speed=voice_speed,
+                        )
+                    elif tts_provider == "chatterbox":
+                        duration = await generate_audio_chatterbox(
+                            text=item.text,
+                            voice_id=current_voice_id,
+                            output_path=output_path,
                         )
                     else:
                         duration = await generate_audio_for_text(

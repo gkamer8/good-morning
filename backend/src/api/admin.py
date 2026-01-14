@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.template_config import templates
 from src.config import get_settings
-from src.storage.database import Briefing, MusicPiece, Schedule, UserSettings, get_session
+from src.api.schemas import SettingsResponse
+from src.storage.database import AdminSettings, Briefing, InviteCode, MusicPiece, Schedule, User, UserSettings, get_session
 from src.storage.minio_storage import get_minio_storage
 
 
@@ -881,22 +882,24 @@ async def admin_scheduler_page(
     from src.main import get_scheduler
     scheduler = get_scheduler()
 
-    # Get schedule configuration
-    result = await session.execute(select(Schedule).limit(1))
-    schedule = result.scalar_one_or_none()
-
-    # Format schedule info
+    # Get all schedules with user info
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    if schedule:
-        schedule_enabled = schedule.enabled
-        schedule_time = f"{schedule.time_hour:02d}:{schedule.time_minute:02d}"
-        schedule_days = ", ".join(day_names[d] for d in sorted(schedule.days_of_week))
-        schedule_timezone = schedule.timezone
-    else:
-        schedule_enabled = False
-        schedule_time = "Not configured"
-        schedule_days = "Not configured"
-        schedule_timezone = "Not configured"
+    schedules_result = await session.execute(
+        select(Schedule, User)
+        .outerjoin(User, Schedule.user_id == User.id)
+        .order_by(Schedule.user_id)
+    )
+    schedules_data = []
+    for schedule, user in schedules_result.all():
+        schedules_data.append({
+            "user_id": schedule.user_id,
+            "user_name": user.display_name if user else None,
+            "user_email": user.email if user else None,
+            "enabled": schedule.enabled,
+            "time": f"{schedule.time_hour:02d}:{schedule.time_minute:02d}",
+            "days": ", ".join(day_names[d] for d in sorted(schedule.days_of_week)),
+            "timezone": schedule.timezone,
+        })
 
     # Get scheduler jobs
     jobs = []
@@ -920,16 +923,17 @@ async def admin_scheduler_page(
                 "trigger": str(job.trigger),
             })
 
-    # Get recent briefings
+    # Get recent briefings with user info
     result = await session.execute(
-        select(Briefing)
+        select(Briefing, User)
+        .outerjoin(User, Briefing.user_id == User.id)
         .order_by(Briefing.created_at.desc())
         .limit(20)
     )
-    briefings_raw = result.scalars().all()
+    briefings_raw = result.all()
 
     briefings = []
-    for b in briefings_raw:
+    for b, user in briefings_raw:
         errors = b.generation_errors if b.generation_errors else []
         rendered = b.rendered_prompts if b.rendered_prompts else {}
         segments_meta = b.segments_metadata if b.segments_metadata else {}
@@ -954,6 +958,9 @@ async def admin_scheduler_page(
             "errors": errors,
             "has_prompts": bool(rendered),
             "rendered_prompts": rendered,
+            "user_id": b.user_id,
+            "user_name": user.display_name if user else None,
+            "user_email": user.email if user else None,
         })
 
     return templates.TemplateResponse(
@@ -963,13 +970,325 @@ async def admin_scheduler_page(
             "active_page": "admin-scheduler",
             "is_authenticated": True,
             "scheduler_running": scheduler_running,
-            "schedule_enabled": schedule_enabled,
-            "schedule_time": schedule_time,
-            "schedule_days": schedule_days,
-            "schedule_timezone": schedule_timezone,
+            "schedules": schedules_data,
             "next_run": next_run,
             "jobs": jobs,
             "briefings": briefings,
             "last_checked": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         },
     )
+
+
+# === Invite Code Management ===
+
+
+@router.get("/invites")
+async def admin_invites_page(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    success: str = None,
+    error: str = None,
+):
+    """Admin invite code management page."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    # Get all invite codes
+    result = await session.execute(
+        select(InviteCode).order_by(InviteCode.created_at.desc())
+    )
+    invites = result.scalars().all()
+
+    # Enrich with user info for used codes
+    invites_data = []
+    for invite in invites:
+        user_email = None
+        if invite.used_by_user_id:
+            user_result = await session.execute(
+                select(User).where(User.id == invite.used_by_user_id)
+            )
+            user = user_result.scalar_one_or_none()
+            if user:
+                user_email = user.email or user.display_name or f"User #{user.id}"
+
+        invites_data.append({
+            "id": invite.id,
+            "code": invite.code,
+            "created_at": invite.created_at.strftime("%Y-%m-%d %H:%M"),
+            "max_uses": invite.max_uses,
+            "use_count": invite.use_count,
+            "expires_at": invite.expires_at.strftime("%Y-%m-%d %H:%M") if invite.expires_at else None,
+            "note": invite.note,
+            "used_by": user_email,
+            "is_valid": invite.use_count < invite.max_uses and (
+                invite.expires_at is None or invite.expires_at > datetime.now()
+            ),
+        })
+
+    # Get invite test mode setting
+    test_mode_result = await session.execute(
+        select(AdminSettings).where(AdminSettings.key == "invite_test_mode_email")
+    )
+    test_mode_setting = test_mode_result.scalar_one_or_none()
+    invite_test_mode_enabled = test_mode_setting is not None and test_mode_setting.value
+    invite_test_mode_email = test_mode_setting.value if test_mode_setting else "gkamer@outlook.com"
+
+    return templates.TemplateResponse(
+        request,
+        "admin/invites.html",
+        {
+            "active_page": "admin-invites",
+            "is_authenticated": True,
+            "invites": invites_data,
+            "success": success,
+            "error": error,
+            "invite_test_mode_enabled": invite_test_mode_enabled,
+            "invite_test_mode_email": invite_test_mode_email,
+        },
+    )
+
+
+@router.post("/invites/create")
+async def admin_create_invite(
+    request: Request,
+    note: str = Form(default=""),
+    max_uses: int = Form(default=1),
+    expires_days: int = Form(default=0),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a new invite code."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    import secrets
+    from datetime import timedelta, timezone
+
+    # Generate unique code (uppercase, 8 chars)
+    code = secrets.token_urlsafe(6).upper()[:8]
+
+    # Calculate expiration if specified
+    expires_at = None
+    if expires_days > 0:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
+
+    invite = InviteCode(
+        code=code,
+        max_uses=max_uses,
+        expires_at=expires_at,
+        note=note or None,
+    )
+    session.add(invite)
+    await session.commit()
+
+    return RedirectResponse(
+        url=f"/admin/invites?success=Created+invite+code:+{code}",
+        status_code=302,
+    )
+
+
+@router.post("/invites/{invite_id}/delete")
+async def admin_delete_invite(
+    request: Request,
+    invite_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete an invite code."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    result = await session.execute(
+        select(InviteCode).where(InviteCode.id == invite_id)
+    )
+    invite = result.scalar_one_or_none()
+
+    if not invite:
+        return RedirectResponse(
+            url="/admin/invites?error=Invite+code+not+found",
+            status_code=302,
+        )
+
+    code = invite.code
+    await session.delete(invite)
+    await session.commit()
+
+    return RedirectResponse(
+        url=f"/admin/invites?success=Deleted+invite+code:+{code}",
+        status_code=302,
+    )
+
+
+@router.post("/invites/test-mode/enable")
+async def admin_enable_invite_test_mode(
+    request: Request,
+    email: str = Form(default="gkamer@outlook.com"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Enable invite test mode for a specific email."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    # Check if setting exists
+    result = await session.execute(
+        select(AdminSettings).where(AdminSettings.key == "invite_test_mode_email")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = email
+    else:
+        setting = AdminSettings(key="invite_test_mode_email", value=email)
+        session.add(setting)
+
+    await session.commit()
+
+    return RedirectResponse(
+        url=f"/admin/invites?success=Invite+test+mode+enabled+for+{email}",
+        status_code=302,
+    )
+
+
+@router.post("/invites/test-mode/disable")
+async def admin_disable_invite_test_mode(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Disable invite test mode."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    result = await session.execute(
+        select(AdminSettings).where(AdminSettings.key == "invite_test_mode_email")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        await session.delete(setting)
+        await session.commit()
+
+    return RedirectResponse(
+        url="/admin/invites?success=Invite+test+mode+disabled",
+        status_code=302,
+    )
+
+
+# === User Management ===
+
+
+@router.get("/users")
+async def admin_users_page(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Admin user management page."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    # Get all users with their settings and schedules
+    result = await session.execute(
+        select(User).order_by(User.created_at.desc())
+    )
+    users = result.scalars().all()
+
+    users_data = []
+    for user in users:
+        # Get user's settings
+        settings_result = await session.execute(
+            select(UserSettings).where(UserSettings.user_id == user.id)
+        )
+        user_settings = settings_result.scalar_one_or_none()
+
+        # Get user's schedule
+        schedule_result = await session.execute(
+            select(Schedule).where(Schedule.user_id == user.id)
+        )
+        user_schedule = schedule_result.scalar_one_or_none()
+
+        # Count user's briefings
+        briefings_result = await session.execute(
+            select(Briefing).where(Briefing.user_id == user.id)
+        )
+        briefings_count = len(briefings_result.scalars().all())
+
+        # Convert schedule to dict
+        schedule_dict = {}
+        if user_schedule:
+            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            schedule_dict = {
+                "enabled": user_schedule.enabled,
+                "time": f"{user_schedule.time_hour:02d}:{user_schedule.time_minute:02d}",
+                "days": ", ".join(day_names[d] for d in sorted(user_schedule.days_of_week)),
+                "timezone": user_schedule.timezone,
+            }
+
+        users_data.append({
+            "id": user.id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "created_at": user.created_at.strftime("%Y-%m-%d %H:%M"),
+            "last_login_at": user.last_login_at.strftime("%Y-%m-%d %H:%M") if user.last_login_at else None,
+            "is_active": user.is_active,
+            "has_settings": user_settings is not None,
+            "schedule": schedule_dict,
+            "briefings_count": briefings_count,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "admin/users.html",
+        {
+            "active_page": "admin-users",
+            "is_authenticated": True,
+            "users": users_data,
+        },
+    )
+
+
+@router.get("/api/users/{user_id}/settings")
+async def admin_get_user_settings(
+    request: Request,
+    user_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Get settings for a specific user (admin API).
+
+    NOTE: This endpoint returns the same structure as SettingsResponse from the main API.
+    If you add/remove fields from SettingsResponse, update this endpoint accordingly.
+    The admin users page template depends on this structure for the "View Settings" modal.
+    """
+    if not is_authenticated(request):
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id)
+    )
+    user_settings = result.scalar_one_or_none()
+
+    if not user_settings:
+        return JSONResponse({"error": "Settings not found"}, status_code=404)
+
+    # Use the same serialization as the main settings API
+    response = SettingsResponse(
+        news_topics=user_settings.news_topics,
+        news_sources=user_settings.news_sources,
+        sports_teams=user_settings.sports_teams,
+        sports_leagues=user_settings.sports_leagues,
+        weather_locations=user_settings.weather_locations,
+        fun_segments=user_settings.fun_segments,
+        briefing_length=user_settings.briefing_length,
+        include_intro_music=user_settings.include_intro_music,
+        include_transitions=user_settings.include_transitions,
+        news_exclusions=user_settings.news_exclusions or [],
+        voice_id=user_settings.voice_id,
+        voice_style=user_settings.voice_style,
+        voice_speed=user_settings.voice_speed,
+        tts_provider=getattr(user_settings, 'tts_provider', None) or "elevenlabs",
+        segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
+        include_music=user_settings.include_music or False,
+        writing_style=getattr(user_settings, 'writing_style', None) or "good_morning_america",
+        timezone=getattr(user_settings, 'timezone', None) or "America/New_York",
+        deep_dive_enabled=getattr(user_settings, 'deep_dive_enabled', False),
+        updated_at=user_settings.updated_at,
+    )
+
+    return JSONResponse(response.model_dump(mode='json'))

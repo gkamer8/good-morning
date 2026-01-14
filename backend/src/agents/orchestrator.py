@@ -255,14 +255,15 @@ async def gather_all_content(
 
         scores = await get_scores_for_leagues(
             leagues,
+            user_timezone=user_timezone,
             favorite_teams_only=limits.sports_favorite_teams_only,
             favorite_teams=teams,
         )
         news = await get_sports_news(leagues, limit_per_league=2)
-        team_games = await get_team_updates(teams) if teams else []
+        team_games = await get_team_updates(teams, user_timezone=user_timezone) if teams else []
 
         return format_sports_for_agent(
-            scores, news, team_games, favorite_teams=teams
+            scores, news, team_games, user_timezone=user_timezone, favorite_teams=teams
         )
 
     async def fetch_weather():
@@ -675,6 +676,7 @@ async def request_user_confirmation(
 
 async def generate_briefing_task(
     briefing_id: int,
+    user_id: Optional[int] = None,
     override_length: Optional[str] = None,
     override_topics: Optional[list[str]] = None,
 ):
@@ -685,15 +687,22 @@ async def generate_briefing_task(
 
     Args:
         briefing_id: ID of the briefing record to update
+        user_id: ID of the user who owns this briefing
         override_length: Override briefing length ("short" or "long")
         override_topics: Override news topics
     """
     collected_errors = []
 
     try:
-        # Get user settings
+        # Get user settings for this user
         async with async_session() as session:
-            result = await session.execute(select(UserSettings).limit(1))
+            if user_id:
+                result = await session.execute(
+                    select(UserSettings).where(UserSettings.user_id == user_id)
+                )
+            else:
+                # Fallback for legacy calls without user_id
+                result = await session.execute(select(UserSettings).limit(1))
             user_settings = result.scalar_one_or_none()
 
             if not user_settings:
@@ -922,6 +931,18 @@ async def generate_briefing_task(
                     voice_speed=user_settings.voice_speed or 1.1,
                     tts_provider=tts_provider,
                 )
+
+        # Collect TTS text segments for debugging/visibility in admin panel
+        tts_text_segments = []
+        for seg in tts_result.segments:
+            tts_text_segments.append({
+                "segment_type": seg.segment_type,
+                "item_index": seg.item_index,
+                "voice_id": seg.voice_id,
+                "text": seg.text,
+                "duration_seconds": seg.duration_seconds,
+            })
+        prompt_renderer.add_prompt("tts_segments", json.dumps(tts_text_segments, indent=2))
 
         # Check for TTS errors - these are non-blocking but should be reported
         if tts_result.has_errors:

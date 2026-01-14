@@ -25,8 +25,9 @@ from src.api.schemas import (
     SettingsResponse,
     SettingsUpdate,
 )
+from src.auth.middleware import get_current_user
 from src.config import get_settings
-from src.storage.database import Briefing, MusicPiece, Schedule, UserSettings, get_session
+from src.storage.database import Briefing, MusicPiece, Schedule, User, UserSettings, get_session
 
 # Stock ElevenLabs voice IDs (Rachel, Adam, Arnold)
 STOCK_VOICE_IDS = {
@@ -36,12 +37,23 @@ STOCK_VOICE_IDS = {
 }
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
 
+# Chatterbox voice IDs (self-hosted TTS)
+CHATTERBOX_VOICE_IDS = {"timmy", "austin", "alice"}
+DEFAULT_CHATTERBOX_VOICE_ID = "timmy"
 
-def get_valid_voice_ids() -> set:
-    """Get all valid voice IDs including stock and custom voices."""
-    settings = get_settings()
-    custom_voice_ids = set(settings.elevenlabs_custom_voice_ids or [])
-    return STOCK_VOICE_IDS | custom_voice_ids
+
+def get_valid_voice_ids(tts_provider: str = "elevenlabs") -> set:
+    """Get all valid voice IDs for a given TTS provider."""
+    if tts_provider == "chatterbox":
+        return CHATTERBOX_VOICE_IDS
+    elif tts_provider == "edge":
+        # Edge TTS uses its own voice names, but we don't expose them as selectable
+        return set()
+    else:
+        # ElevenLabs
+        settings = get_settings()
+        custom_voice_ids = set(settings.elevenlabs_custom_voice_ids or [])
+        return STOCK_VOICE_IDS | custom_voice_ids
 
 router = APIRouter()
 settings = get_settings()
@@ -54,20 +66,24 @@ settings = get_settings()
 async def generate_briefing(
     request: BriefingCreate,
     background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Trigger generation of a new morning briefing."""
     from src.agents.orchestrator import generate_briefing_task
     from src.utils.timezone import get_user_now
 
-    # Get user timezone for the title
-    result = await session.execute(select(UserSettings).limit(1))
+    # Get user's settings for timezone
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user.id)
+    )
     user_settings = result.scalar_one_or_none()
     user_tz = getattr(user_settings, 'timezone', None) or "America/New_York"
     user_now = get_user_now(user_tz)
 
-    # Create pending briefing record
+    # Create pending briefing record for this user
     briefing = Briefing(
+        user_id=user.id,
         title=f"Morning Briefing - {user_now.strftime('%B %d, %Y')}",
         duration_seconds=0,
         audio_filename="",
@@ -79,10 +95,11 @@ async def generate_briefing(
     await session.commit()
     await session.refresh(briefing)
 
-    # Start generation in background
+    # Start generation in background with user_id
     background_tasks.add_task(
         generate_briefing_task,
         briefing_id=briefing.id,
+        user_id=user.id,
         override_length=request.override_length,
         override_topics=request.override_topics,
     )
@@ -99,13 +116,15 @@ async def generate_briefing(
 async def list_briefings(
     limit: int = 10,
     offset: int = 0,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all available briefings."""
+    """List all available briefings for the current user."""
     # Include both completed and completed_with_warnings
     completed_statuses = ["completed", "completed_with_warnings"]
     result = await session.execute(
         select(Briefing)
+        .where(Briefing.user_id == user.id)
         .where(Briefing.status.in_(completed_statuses))
         .order_by(Briefing.created_at.desc())
         .limit(limit)
@@ -113,9 +132,11 @@ async def list_briefings(
     )
     briefings = result.scalars().all()
 
-    # Count total
+    # Count total for this user
     count_result = await session.execute(
-        select(Briefing).where(Briefing.status.in_(completed_statuses))
+        select(Briefing)
+        .where(Briefing.user_id == user.id)
+        .where(Briefing.status.in_(completed_statuses))
     )
     total = len(count_result.scalars().all())
 
@@ -141,10 +162,13 @@ async def list_briefings(
 @router.get("/briefings/{briefing_id}", response_model=BriefingResponse)
 async def get_briefing(
     briefing_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a specific briefing by ID."""
-    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
     briefing = result.scalar_one_or_none()
 
     if not briefing:
@@ -166,10 +190,13 @@ async def get_briefing(
 @router.get("/briefings/{briefing_id}/status", response_model=GenerationStatus)
 async def get_briefing_status(
     briefing_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get the generation status of a briefing."""
-    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
     briefing = result.scalar_one_or_none()
 
     if not briefing:
@@ -227,6 +254,7 @@ async def resolve_briefing_error(
     briefing_id: int,
     resolution: ErrorResolution,
     background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Resolve a pending error during generation.
@@ -236,7 +264,9 @@ async def resolve_briefing_error(
     - "cancel": Cancel the generation entirely
     - "retry": Retry the failed operation
     """
-    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
     briefing = result.scalar_one_or_none()
 
     if not briefing:
@@ -284,6 +314,7 @@ async def resolve_briefing_error(
 @router.post("/briefings/{briefing_id}/cancel")
 async def cancel_briefing(
     briefing_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Cancel a briefing that is currently generating.
@@ -291,7 +322,9 @@ async def cancel_briefing(
     This marks the briefing as cancelled in the database. The background task
     will check this status periodically and stop processing if cancelled.
     """
-    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
     briefing = result.scalar_one_or_none()
 
     if not briefing:
@@ -319,10 +352,13 @@ async def cancel_briefing(
 @router.delete("/briefings/{briefing_id}")
 async def delete_briefing(
     briefing_id: int,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a briefing."""
-    result = await session.execute(select(Briefing).where(Briefing.id == briefing_id))
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
     briefing = result.scalar_one_or_none()
 
     if not briefing:
@@ -344,14 +380,21 @@ async def delete_briefing(
 
 @router.get("/settings", response_model=SettingsResponse)
 async def get_settings_endpoint(
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get current user settings."""
-    result = await session.execute(select(UserSettings).limit(1))
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user.id)
+    )
     user_settings = result.scalar_one_or_none()
 
     if not user_settings:
-        raise HTTPException(status_code=404, detail="Settings not found")
+        # Create default settings if missing (shouldn't happen normally)
+        user_settings = UserSettings(user_id=user.id)
+        session.add(user_settings)
+        await session.commit()
+        await session.refresh(user_settings)
 
     return SettingsResponse(
         news_topics=user_settings.news_topics,
@@ -380,10 +423,13 @@ async def get_settings_endpoint(
 @router.put("/settings", response_model=SettingsResponse)
 async def update_settings(
     update: SettingsUpdate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Update user settings."""
-    result = await session.execute(select(UserSettings).limit(1))
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user.id)
+    )
     user_settings = result.scalar_one_or_none()
 
     if not user_settings:
@@ -405,9 +451,15 @@ async def update_settings(
             value = [loc.model_dump() if hasattr(loc, "model_dump") else loc for loc in value]
         elif field == "voice_id":
             # Validate voice_id - use default if invalid
-            # Include both stock voices and custom voices from settings
-            if value not in get_valid_voice_ids():
-                value = DEFAULT_VOICE_ID
+            # Must check against the correct provider (from update or existing settings)
+            current_provider = update_data.get("tts_provider", user_settings.tts_provider)
+            valid_voices = get_valid_voice_ids(current_provider)
+            if valid_voices and value not in valid_voices:
+                # Use provider-appropriate default
+                if current_provider == "chatterbox":
+                    value = DEFAULT_CHATTERBOX_VOICE_ID
+                else:
+                    value = DEFAULT_VOICE_ID
         setattr(user_settings, field, value)
 
     await session.commit()
@@ -442,14 +494,21 @@ async def update_settings(
 
 @router.get("/schedule", response_model=ScheduleResponse)
 async def get_schedule(
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get the current generation schedule."""
-    result = await session.execute(select(Schedule).limit(1))
+    result = await session.execute(
+        select(Schedule).where(Schedule.user_id == user.id)
+    )
     schedule = result.scalar_one_or_none()
 
     if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        # Create default schedule if missing
+        schedule = Schedule(user_id=user.id)
+        session.add(schedule)
+        await session.commit()
+        await session.refresh(schedule)
 
     return ScheduleResponse(
         id=schedule.id,
@@ -465,10 +524,13 @@ async def get_schedule(
 @router.put("/schedule", response_model=ScheduleResponse)
 async def update_schedule(
     update: ScheduleUpdate,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Update the generation schedule."""
-    result = await session.execute(select(Schedule).limit(1))
+    result = await session.execute(
+        select(Schedule).where(Schedule.user_id == user.id)
+    )
     schedule = result.scalar_one_or_none()
 
     if not schedule:
@@ -481,7 +543,9 @@ async def update_schedule(
 
     # Sync timezone to UserSettings if it was updated
     if "timezone" in update_data:
-        settings_result = await session.execute(select(UserSettings).limit(1))
+        settings_result = await session.execute(
+            select(UserSettings).where(UserSettings.user_id == user.id)
+        )
         user_settings = settings_result.scalar_one_or_none()
         if user_settings:
             user_settings.timezone = schedule.timezone
@@ -489,17 +553,19 @@ async def update_schedule(
     await session.commit()
     await session.refresh(schedule)
 
-    # Update the running scheduler with new settings
+    # Update the running scheduler with new settings for this user
     from src.main import get_scheduler
-    from src.scheduler import create_scheduled_briefing
+    from src.scheduler import create_scheduled_briefing_for_user
     from apscheduler.triggers.cron import CronTrigger
     from zoneinfo import ZoneInfo
 
     scheduler = get_scheduler()
+    job_id = f"morning_briefing_user_{user.id}"
+
     if scheduler and scheduler.running:
-        # Remove existing job if present
-        if scheduler.get_job("morning_briefing"):
-            scheduler.remove_job("morning_briefing")
+        # Remove existing job for this user if present
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
 
         # Add new job if schedule is enabled
         if schedule.enabled:
@@ -511,10 +577,11 @@ async def update_schedule(
                 timezone=ZoneInfo(schedule.timezone),
             )
             scheduler.add_job(
-                create_scheduled_briefing,
+                create_scheduled_briefing_for_user,
                 trigger,
-                id="morning_briefing",
-                name="Morning Briefing Generation",
+                args=[user.id],
+                id=job_id,
+                name=f"Morning Briefing - {user.email or user.display_name or f'User #{user.id}'}",
                 replace_existing=True,
             )
 
@@ -533,12 +600,30 @@ async def update_schedule(
 
 
 @router.get("/voices")
-async def list_voices():
-    """List all available ElevenLabs voices including custom voices."""
-    from src.audio.tts import list_available_voices
+async def list_voices(tts_provider: str = "elevenlabs"):
+    """List all available voices for the specified TTS provider."""
+    from src.audio.tts import list_available_voices, CHATTERBOX_VOICE_PROFILES
 
-    voices = await list_available_voices()
-    return {"voices": voices, "total": len(voices)}
+    if tts_provider == "chatterbox":
+        # Return Chatterbox voices
+        voices = [
+            {
+                "voice_id": voice_id,
+                "name": config["display_name"],
+                "description": config["description"],
+                "labels": {"provider": "chatterbox"},
+            }
+            for voice_id, config in CHATTERBOX_VOICE_PROFILES.items()
+            if voice_id != "host"  # Don't include the "host" alias
+        ]
+        return {"voices": voices, "total": len(voices)}
+    elif tts_provider == "edge":
+        # Edge TTS doesn't have selectable voices (uses fixed voice)
+        return {"voices": [], "total": 0}
+    else:
+        # ElevenLabs voices
+        voices = await list_available_voices()
+        return {"voices": voices, "total": len(voices)}
 
 
 PREVIEW_TEXT = "Good morning! This is your Morning Drive briefing for today. Let's get you caught up on what's happening."
@@ -549,13 +634,21 @@ async def get_voice_preview(voice_id: str):
     """Get or generate a voice preview audio sample."""
     from pathlib import Path
     from elevenlabs import ElevenLabs
+    import httpx
+    from src.audio.tts import CHATTERBOX_VOICE_PROFILES
 
     # Preview directory
     preview_dir = settings.audio_output_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check if preview already exists and is valid (non-empty)
-    preview_path = preview_dir / f"{voice_id}.mp3"
+    # Determine if this is a Chatterbox voice
+    is_chatterbox_voice = voice_id.lower() in CHATTERBOX_VOICE_IDS
+
+    # Use different filename prefix for Chatterbox voices to avoid conflicts
+    if is_chatterbox_voice:
+        preview_path = preview_dir / f"chatterbox_{voice_id.lower()}.mp3"
+    else:
+        preview_path = preview_dir / f"{voice_id}.mp3"
 
     needs_generation = False
     if not preview_path.exists():
@@ -566,52 +659,109 @@ async def get_voice_preview(voice_id: str):
         needs_generation = True
 
     if needs_generation:
-        # Generate preview
-        if not settings.elevenlabs_api_key:
-            raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
-
-        try:
-            client = ElevenLabs(api_key=settings.elevenlabs_api_key)
-
-            audio_generator = client.text_to_speech.convert(
-                voice_id=voice_id,
-                text=PREVIEW_TEXT,
-                model_id=settings.elevenlabs_model_id,
-                output_format="mp3_44100_128",
-                voice_settings={
-                    "stability": 0.35,
-                    "similarity_boost": 0.75,
-                    "style": 0.65,
-                    "use_speaker_boost": True,
-                },
-            )
-
-            # Write to a temp file first, then rename to avoid partial files
-            temp_path = preview_dir / f"{voice_id}.tmp.mp3"
-            bytes_written = 0
-            with open(temp_path, "wb") as f:
-                for chunk in audio_generator:
-                    f.write(chunk)
-                    bytes_written += len(chunk)
-
-            # Verify we got actual audio data
-            if bytes_written == 0:
-                temp_path.unlink()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"ElevenLabs returned empty audio for voice {voice_id}"
+        if is_chatterbox_voice:
+            # Generate preview via Chatterbox API
+            try:
+                voice_config = CHATTERBOX_VOICE_PROFILES.get(
+                    voice_id.lower(),
+                    CHATTERBOX_VOICE_PROFILES["timmy"]
                 )
 
-            # Move temp file to final location
-            temp_path.rename(preview_path)
+                payload = {
+                    "text": PREVIEW_TEXT,
+                    "voice_mode": voice_config["voice_mode"],
+                    "output_format": "mp3",
+                    "split_text": False,
+                    # Voice generation parameters
+                    "temperature": 0.7,
+                    "exaggeration": 0.7,
+                    "cfg_weight": 0.5,
+                    "seed": 1986,
+                }
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            # Clean up any partial file
-            if preview_path.exists() and preview_path.stat().st_size == 0:
-                preview_path.unlink()
-            raise HTTPException(status_code=500, detail=f"Failed to generate preview: {str(e)}")
+                if voice_config["voice_mode"] == "clone":
+                    payload["reference_audio_filename"] = voice_config["reference_audio_filename"]
+                else:
+                    payload["predefined_voice_id"] = voice_config["predefined_voice_id"]
+
+                # Try Docker URL first, fall back to dev URL
+                chatterbox_url = settings.chatterbox_url
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    try:
+                        response = await client.post(f"{chatterbox_url}/tts", json=payload)
+                        response.raise_for_status()
+                    except httpx.ConnectError:
+                        chatterbox_url = settings.chatterbox_dev_url
+                        response = await client.post(f"{chatterbox_url}/tts", json=payload)
+                        response.raise_for_status()
+
+                    # Write to temp file first
+                    temp_path = preview_dir / f"chatterbox_{voice_id.lower()}.tmp.mp3"
+                    with open(temp_path, "wb") as f:
+                        f.write(response.content)
+
+                    if temp_path.stat().st_size == 0:
+                        temp_path.unlink()
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Chatterbox returned empty audio for voice {voice_id}"
+                        )
+
+                    temp_path.rename(preview_path)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                if preview_path.exists() and preview_path.stat().st_size == 0:
+                    preview_path.unlink()
+                raise HTTPException(status_code=500, detail=f"Failed to generate Chatterbox preview: {str(e)}")
+        else:
+            # Generate preview via ElevenLabs
+            if not settings.elevenlabs_api_key:
+                raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
+
+            try:
+                client = ElevenLabs(api_key=settings.elevenlabs_api_key)
+
+                audio_generator = client.text_to_speech.convert(
+                    voice_id=voice_id,
+                    text=PREVIEW_TEXT,
+                    model_id=settings.elevenlabs_model_id,
+                    output_format="mp3_44100_128",
+                    voice_settings={
+                        "stability": 0.35,
+                        "similarity_boost": 0.75,
+                        "style": 0.65,
+                        "use_speaker_boost": True,
+                    },
+                )
+
+                # Write to a temp file first, then rename to avoid partial files
+                temp_path = preview_dir / f"{voice_id}.tmp.mp3"
+                bytes_written = 0
+                with open(temp_path, "wb") as f:
+                    for chunk in audio_generator:
+                        f.write(chunk)
+                        bytes_written += len(chunk)
+
+                # Verify we got actual audio data
+                if bytes_written == 0:
+                    temp_path.unlink()
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"ElevenLabs returned empty audio for voice {voice_id}"
+                    )
+
+                # Move temp file to final location
+                temp_path.rename(preview_path)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                # Clean up any partial file
+                if preview_path.exists() and preview_path.stat().st_size == 0:
+                    preview_path.unlink()
+                raise HTTPException(status_code=500, detail=f"Failed to generate preview: {str(e)}")
 
     return FileResponse(
         preview_path,

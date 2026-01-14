@@ -23,8 +23,9 @@ import { Event } from 'react-native-track-player';
 import TrackPlayer from 'react-native-track-player';
 
 import { api } from '../services/api';
+import { authService } from '../services/auth';
 import { playVoicePreview, stopVoicePreview } from '../services/audio';
-import { useSettingsStore, useAppConfigStore } from '../store';
+import { useSettingsStore, useAppConfigStore, useAuthStore } from '../store';
 import { APP_VERSION } from '../version';
 import {
   NEWS_TOPICS,
@@ -32,7 +33,9 @@ import {
   SPORTS_LEAGUES,
   FUN_SEGMENTS,
   DAYS_OF_WEEK,
-  VOICE_OPTIONS,
+  ELEVENLABS_VOICE_OPTIONS,
+  CHATTERBOX_VOICE_OPTIONS,
+  DEFAULT_VOICE_IDS,
   VOICE_STYLES,
   WRITING_STYLES,
   SEGMENT_TYPES,
@@ -51,6 +54,7 @@ export function SettingsScreen() {
   const { settings, setSettings, schedule, setSchedule } = useSettingsStore();
   const { serverUrl, setServerUrl, isConnected, setConnected } =
     useAppConfigStore();
+  const { logout } = useAuthStore();
 
   const [localServerUrl, setLocalServerUrl] = useState(serverUrl);
   const [newExclusion, setNewExclusion] = useState('');
@@ -148,37 +152,54 @@ export function SettingsScreen() {
     queryFn: () => api.getSchedule(),
   });
 
-  // Fetch available voices (includes custom voices from ElevenLabs)
+  // Fetch available voices (only needed for ElevenLabs to get custom voices)
   const voicesQuery = useQuery({
-    queryKey: ['voices'],
-    queryFn: () => api.listVoices(),
+    queryKey: ['voices', settings?.tts_provider],
+    queryFn: () => api.listVoices(settings?.tts_provider),
     staleTime: 1000 * 60 * 10, // Cache for 10 minutes
+    enabled: settings?.tts_provider === 'elevenlabs', // Only fetch for ElevenLabs
   });
 
-  // Merge hardcoded voices with API voices to get custom voices like "Firing Line"
+  // Get voices based on selected TTS provider
   const allVoices = React.useMemo(() => {
-    const hardcodedVoices = VOICE_OPTIONS.map(v => ({
-      id: v.id,
-      label: v.label,
-      description: v.description,
-      isCustom: false,
-    }));
+    const currentProvider = settings?.tts_provider || 'chatterbox';
 
-    // Get API voices and find any that aren't in our hardcoded list
-    const apiVoices = voicesQuery.data?.voices || [];
-    const customVoices = apiVoices
-      .filter(v => !VOICE_OPTIONS.some(opt => opt.id === v.voice_id))
-      .map(v => ({
-        id: v.voice_id,
-        label: v.name,
-        description: v.labels?.accent
-          ? `${v.labels.gender || 'Voice'}, ${v.labels.accent}`
-          : v.description || 'Custom voice',
-        isCustom: true,
+    if (currentProvider === 'chatterbox') {
+      // Return Chatterbox voices
+      return CHATTERBOX_VOICE_OPTIONS.map(v => ({
+        id: v.id,
+        label: v.label,
+        description: v.description,
+        isCustom: false,
+      }));
+    } else if (currentProvider === 'edge') {
+      // Edge TTS uses fixed voice, no selection needed
+      return [];
+    } else {
+      // ElevenLabs - merge hardcoded with API voices
+      const hardcodedVoices = ELEVENLABS_VOICE_OPTIONS.map(v => ({
+        id: v.id,
+        label: v.label,
+        description: v.description,
+        isCustom: false,
       }));
 
-    return [...customVoices, ...hardcodedVoices];
-  }, [voicesQuery.data]);
+      // Get API voices and find any that aren't in our hardcoded list
+      const apiVoices = voicesQuery.data?.voices || [];
+      const customVoices = apiVoices
+        .filter(v => !ELEVENLABS_VOICE_OPTIONS.some(opt => opt.id === v.voice_id))
+        .map(v => ({
+          id: v.voice_id,
+          label: v.name,
+          description: v.labels?.accent
+            ? `${v.labels.gender || 'Voice'}, ${v.labels.accent}`
+            : v.description || 'Custom voice',
+          isCustom: true,
+        }));
+
+      return [...customVoices, ...hardcodedVoices];
+    }
+  }, [voicesQuery.data, settings?.tts_provider]);
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
@@ -393,6 +414,24 @@ export function SettingsScreen() {
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await authService.clearTokens();
+            logout();
+          },
+        },
+      ]
+    );
   };
 
   // Show loading state for content below server connection, but always show server connection
@@ -994,10 +1033,11 @@ export function SettingsScreen() {
           <Text style={styles.voiceLabel}>TTS Provider</Text>
           <View style={styles.ttsProviderOptions}>
             {[
-              { id: 'edge', label: 'Edge TTS', description: 'Free - Microsoft' },
+              { id: 'chatterbox', label: 'Chatterbox', description: 'Self-hosted' },
               { id: 'elevenlabs', label: 'ElevenLabs', description: 'Paid - Premium' },
+              { id: 'edge', label: 'Edge TTS', description: 'Free - Microsoft' },
             ].map((provider) => {
-              const isSelected = (settings?.tts_provider || 'elevenlabs') === provider.id;
+              const isSelected = (settings?.tts_provider || 'chatterbox') === provider.id;
               return (
                 <TouchableOpacity
                   key={provider.id}
@@ -1005,7 +1045,14 @@ export function SettingsScreen() {
                     styles.ttsProviderOption,
                     isSelected && styles.ttsProviderOptionSelected,
                   ]}
-                  onPress={() => updateSettingsMutation.mutate({ tts_provider: provider.id })}
+                  onPress={() => {
+                    // Auto-reset voice_id to default for new provider
+                    const defaultVoice = DEFAULT_VOICE_IDS[provider.id as keyof typeof DEFAULT_VOICE_IDS] || 'timmy';
+                    updateSettingsMutation.mutate({
+                      tts_provider: provider.id,
+                      voice_id: defaultVoice,
+                    });
+                  }}
                 >
                   <Text
                     style={[
@@ -1030,15 +1077,24 @@ export function SettingsScreen() {
           </View>
 
           <Text style={styles.voiceLabel}>Host Voice</Text>
-          <Text style={styles.voiceHint}>Tap the play button to preview each voice</Text>
-          {voicesQuery.isLoading && (
-            <View style={styles.voiceLoadingContainer}>
-              <ActivityIndicator size="small" color="#4f46e5" />
-              <Text style={styles.voiceLoadingText}>Loading voices...</Text>
+          {settings?.tts_provider === 'edge' ? (
+            <View style={styles.voiceOptions}>
+              <View style={[styles.voiceOption, { backgroundColor: '#f0f0f2' }]}>
+                <Text style={styles.voiceOptionText}>Guy (Microsoft Edge TTS)</Text>
+                <Text style={styles.voiceOptionDesc}>Edge TTS uses a fixed voice</Text>
+              </View>
             </View>
-          )}
-          <View style={styles.voiceOptions}>
-            {allVoices.map((voice) => {
+          ) : (
+            <>
+              <Text style={styles.voiceHint}>Tap the play button to preview each voice</Text>
+              {voicesQuery.isLoading && settings?.tts_provider === 'elevenlabs' && (
+                <View style={styles.voiceLoadingContainer}>
+                  <ActivityIndicator size="small" color="#4f46e5" />
+                  <Text style={styles.voiceLoadingText}>Loading voices...</Text>
+                </View>
+              )}
+              <View style={styles.voiceOptions}>
+                {allVoices.map((voice) => {
               const isSelected = settings?.voice_id === voice.id;
               const isPreviewing = previewingVoice === voice.id;
               const isLoading = previewLoading === voice.id;
@@ -1106,7 +1162,9 @@ export function SettingsScreen() {
                 </View>
               );
             })}
-          </View>
+              </View>
+            </>
+          )}
 
           <Text style={[styles.voiceLabel, { marginTop: 16 }]}>Delivery Style</Text>
           <View style={styles.styleOptions}>
@@ -1184,6 +1242,20 @@ export function SettingsScreen() {
             ) : (
               <Text style={styles.saveButtonText}>Save & Connect</Text>
             )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Account Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.signOutButton}
+            onPress={handleSignOut}
+          >
+            <Icon name="log-out-outline" size={20} color="#dc2626" />
+            <Text style={styles.signOutButtonText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1743,6 +1815,18 @@ const styles = StyleSheet.create({
   },
   writingStyleOptionDescSelected: {
     color: 'rgba(255,255,255,0.8)',
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  signOutButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#dc2626',
   },
   versionContainer: {
     alignItems: 'center',

@@ -12,6 +12,7 @@ import {
   UserSettings,
   VoiceInfo,
 } from '../types';
+import { authService, AuthResponse, TokenPair, AppleSignInRequest } from './auth';
 
 // Default server URL - production Cloudflare tunnel
 const DEFAULT_BASE_URL = 'https://morning.g0rdon.com';
@@ -37,17 +38,39 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    skipAuth: boolean = false
   ): Promise<T> {
     const url = `${this.baseUrl}/api${endpoint}`;
 
-    const response = await fetch(url, {
+    // Build headers with auth token if available
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+
+    const accessToken = authService.getAccessToken();
+    if (accessToken && !skipAuth) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    let response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
     });
+
+    // Handle 401 - try token refresh
+    if (response.status === 401 && accessToken && !skipAuth) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        // Retry with new token
+        headers['Authorization'] = `Bearer ${authService.getAccessToken()}`;
+        response = await fetch(url, {
+          ...options,
+          headers,
+        });
+      }
+    }
 
     if (!response.ok) {
       const error = await response.text();
@@ -55,6 +78,27 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  /**
+   * Try to refresh the access token using the refresh token.
+   * Returns true if successful.
+   */
+  private async tryRefreshToken(): Promise<boolean> {
+    const refreshToken = authService.getRefreshToken();
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const tokens = await this.refreshTokens(refreshToken);
+      await authService.storeTokens(tokens);
+      return true;
+    } catch (error) {
+      console.log('[API] Token refresh failed:', error);
+      await authService.clearTokens();
+      return false;
+    }
   }
 
   // === Briefings ===
@@ -113,8 +157,9 @@ class ApiClient {
 
   // === Voices ===
 
-  async listVoices(): Promise<{ voices: VoiceInfo[]; total: number }> {
-    return this.request<{ voices: VoiceInfo[]; total: number }>('/voices');
+  async listVoices(ttsProvider?: string): Promise<{ voices: VoiceInfo[]; total: number }> {
+    const params = ttsProvider ? `?tts_provider=${ttsProvider}` : '';
+    return this.request<{ voices: VoiceInfo[]; total: number }>(`/voices${params}`);
   }
 
   // === Settings ===
@@ -181,6 +226,30 @@ class ApiClient {
   async isHealthy(): Promise<boolean> {
     const result = await this.healthCheck();
     return result.ok;
+  }
+
+  // === Auth ===
+
+  async appleSignIn(data: AppleSignInRequest): Promise<AuthResponse> {
+    return this.request<AuthResponse>(
+      '/auth/apple',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      true // Skip auth - this is the login endpoint
+    );
+  }
+
+  async refreshTokens(refreshToken: string): Promise<TokenPair> {
+    return this.request<TokenPair>(
+      '/auth/refresh',
+      {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      },
+      true // Skip auth - uses refresh token in body
+    );
   }
 }
 
