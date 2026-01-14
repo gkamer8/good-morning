@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Invite Codes{% endblock %}
+
+{% block content %}
+<div class="container-wide">
+    {% if success %}
+    <div class="message success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="message error">{{ error }}</div>
+    {% endif %}
+
+    <!-- Invite Test Mode -->
+    <div class="card" style="border: 2px solid {% if invite_test_mode_enabled %}#f59e0b{% else %}#e5e7eb{% endif %}; background: {% if invite_test_mode_enabled %}#fffbeb{% else %}#fff{% endif %};">
+        <div class="card-header" style="background: {% if invite_test_mode_enabled %}#fef3c7{% else %}#f3f4f6{% endif %};">
+            🧪 Invite Test Mode
+            {% if invite_test_mode_enabled %}
+            <span class="badge" style="background: #f59e0b; margin-left: 10px;">ENABLED</span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p style="margin-bottom: 15px; color: #666;">
+                When enabled, the specified user will be treated as a "new user" during sign-in, requiring an invite code.
+                The invite code will be consumed, but the existing account will be used (no new account created, settings preserved).
+            </p>
+            {% if invite_test_mode_enabled %}
+            <p style="margin-bottom: 15px;"><strong>Currently testing:</strong> <code>{{ invite_test_mode_email }}</code></p>
+            <form method="POST" action="/admin/invites/test-mode/disable">
+                <button type="submit" class="btn-delete">Disable Test Mode</button>
+            </form>
+            {% else %}
+            <form method="POST" action="/admin/invites/test-mode/enable">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="email">Email to test</label>
+                        <input type="email" id="email" name="email" value="{{ invite_test_mode_email }}" style="width: 250px;">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button type="submit" class="btn-primary" style="background: #f59e0b;">Enable Test Mode</button>
+                    </div>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Create New Invite Code</div>
+        <div class="card-body">
+            <form method="POST" action="/admin/invites/create">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="note">Note (optional)</label>
+                        <input type="text" id="note" name="note" placeholder="e.g., For John Doe">
+                    </div>
+                    <div class="form-group">
+                        <label for="max_uses">Max Uses</label>
+                        <input type="number" id="max_uses" name="max_uses" value="1" min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="expires_days">Expires In (days, 0=never)</label>
+                        <input type="number" id="expires_days" name="expires_days" value="0" min="0" max="365">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button type="submit" class="btn-primary">Create Code</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Invite Codes</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Note</th>
+                    <th>Uses</th>
+                    <th>Expires</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if invites %}
+                {% for invite in invites %}
+                <tr>
+                    <td><code style="font-size: 1.1em; font-weight: bold; letter-spacing: 1px;">{{ invite.code }}</code></td>
+                    <td>{{ invite.note or '-' }}</td>
+                    <td>{{ invite.use_count }} / {{ invite.max_uses }}</td>
+                    <td>{{ invite.expires_at or 'Never' }}</td>
+                    <td>
+                        {% if invite.used_by %}
+                        <span class="badge" style="background: #6366f1;">Used by {{ invite.used_by }}</span>
+                        {% elif invite.is_valid %}
+                        <span class="badge active">Valid</span>
+                        {% else %}
+                        <span class="badge inactive">Expired/Used</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ invite.created_at }}</td>
+                    <td>
+                        <form method="POST" action="/admin/invites/{{ invite.id }}/delete" style="display:inline;">
+                            <button type="submit" class="btn-delete" onclick="return confirm('Delete invite code {{ invite.code }}?')">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr><td colspan="7" class="empty">No invite codes yet. Create one above!</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

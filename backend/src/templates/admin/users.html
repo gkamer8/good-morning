@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<div class="container-wide">
+    <div class="card">
+        <div class="card-header">
+            Registered Users
+            <span class="count">{{ users|length }} user(s)</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Schedule</th>
+                    <th>Briefings</th>
+                    <th>Last Login</th>
+                    <th>Settings</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if users %}
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.id }}</td>
+                    <td>{{ user.display_name or '-' }}</td>
+                    <td>{{ user.email or '-' }}</td>
+                    <td>
+                        {% if user.is_active %}
+                        <span class="badge active">Active</span>
+                        {% else %}
+                        <span class="badge inactive">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.schedule %}
+                        {% if user.schedule.enabled %}
+                        <span style="font-size: 0.85rem;">{{ user.schedule.time }} ({{ user.schedule.timezone }})</span>
+                        <br><span style="font-size: 0.75rem; color: #666;">{{ user.schedule.days }}</span>
+                        {% else %}
+                        <span class="badge inactive">Disabled</span>
+                        {% endif %}
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.briefings_count }}</td>
+                    <td>{{ user.last_login_at or 'Never' }}</td>
+                    <td>
+                        {% if user.has_settings %}
+                        <button class="preview-btn" onclick="showSettings({{ user.id }})">
+                            View
+                        </button>
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr><td colspan="8" class="empty">No users registered yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settings-modal" class="modal" onclick="if(event.target===this) closeModal()">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3 id="modal-title">User Settings</h3>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+        </div>
+    </div>
+</div>
+
+<style>
+.modal-large {
+    max-width: 800px;
+    max-height: 85vh;
+}
+.settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 8px 16px;
+    font-size: 0.9rem;
+}
+.settings-grid dt {
+    font-weight: 600;
+    color: #374151;
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+.settings-grid dd {
+    margin: 0;
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f4f6;
+    word-break: break-word;
+}
+.settings-grid dd code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+.settings-section {
+    margin-bottom: 20px;
+}
+.settings-section h4 {
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #4f46e5;
+    color: #4f46e5;
+}
+.bool-true { color: #059669; }
+.bool-false { color: #dc2626; }
+.loading-spinner {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Group settings by category
+    function categorizeSettings(settings) {
+        const categories = {
+            'Content': ['news_topics', 'news_sources', 'news_exclusions', 'sports_teams', 'sports_leagues', 'weather_locations', 'fun_segments'],
+            'Voice & Audio': ['voice_id', 'voice_style', 'voice_speed', 'tts_provider'],
+            'Briefing Format': ['briefing_length', 'segment_order', 'include_intro_music', 'include_transitions', 'include_music', 'writing_style'],
+            'Features': ['deep_dive_enabled', 'timezone'],
+        };
+
+        const result = {};
+        const used = new Set();
+
+        for (const [category, keys] of Object.entries(categories)) {
+            result[category] = {};
+            for (const key of keys) {
+                if (key in settings) {
+                    result[category][key] = settings[key];
+                    used.add(key);
+                }
+            }
+        }
+
+        // Add any remaining settings to "Other" (this handles new settings automatically)
+        result['Other'] = {};
+        const excludeKeys = new Set(['updated_at']);  // Don't show in "Other"
+        for (const [key, value] of Object.entries(settings)) {
+            if (!used.has(key) && !excludeKeys.has(key)) {
+                result['Other'][key] = value;
+            }
+        }
+
+        // Remove empty categories
+        for (const category of Object.keys(result)) {
+            if (Object.keys(result[category]).length === 0) {
+                delete result[category];
+            }
+        }
+
+        return result;
+    }
+
+    function formatSettingKey(key) {
+        return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function formatSettingValue(value) {
+        if (value === null || value === undefined) {
+            return '<span style="color: #999;">null</span>';
+        }
+        if (typeof value === 'boolean') {
+            return value
+                ? '<span class="bool-true">✓ Yes</span>'
+                : '<span class="bool-false">✗ No</span>';
+        }
+        if (Array.isArray(value)) {
+            if (value.length === 0) {
+                return '<span style="color: #999;">(empty)</span>';
+            }
+            // Check if it's an array of objects (like weather_locations, sports_teams)
+            if (typeof value[0] === 'object') {
+                return '<code style="white-space: pre-wrap;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</code>';
+            }
+            return value.map(v => '<code>' + escapeHtml(String(v)) + '</code>').join(', ');
+        }
+        if (typeof value === 'object') {
+            return '<code style="white-space: pre-wrap;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</code>';
+        }
+        return escapeHtml(String(value));
+    }
+
+    async function showSettings(userId) {
+        const modal = document.getElementById('settings-modal');
+        const title = document.getElementById('modal-title');
+        const body = document.getElementById('modal-body');
+
+        title.textContent = 'User #' + userId + ' - Settings';
+        body.innerHTML = '<div class="loading-spinner">Loading settings...</div>';
+        modal.classList.add('show');
+
+        try {
+            const response = await fetch('/admin/api/users/' + userId + '/settings');
+            if (!response.ok) {
+                throw new Error('Failed to load settings');
+            }
+            const settings = await response.json();
+            renderSettings(settings);
+        } catch (error) {
+            body.innerHTML = '<p style="color: #dc2626;">Error loading settings: ' + escapeHtml(error.message) + '</p>';
+        }
+    }
+
+    function renderSettings(settings) {
+        const body = document.getElementById('modal-body');
+
+        if (!settings || Object.keys(settings).length === 0) {
+            body.innerHTML = '<p>No settings configured.</p>';
+            return;
+        }
+
+        const categorized = categorizeSettings(settings);
+        let html = '';
+
+        // Show last updated
+        if (settings.updated_at) {
+            html += '<p style="color: #666; font-size: 0.85rem; margin-bottom: 15px;">Last updated: ' + settings.updated_at + '</p>';
+        }
+
+        for (const [category, categorySettings] of Object.entries(categorized)) {
+            html += '<div class="settings-section">';
+            html += '<h4>' + category + '</h4>';
+            html += '<dl class="settings-grid">';
+
+            for (const [key, value] of Object.entries(categorySettings)) {
+                html += '<dt>' + formatSettingKey(key) + '</dt>';
+                html += '<dd>' + formatSettingValue(value) + '</dd>';
+            }
+
+            html += '</dl></div>';
+        }
+
+        body.innerHTML = html;
+    }
+
+    function closeModal() {
+        document.getElementById('settings-modal').classList.remove('show');
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeModal();
+        }
+    });
+</script>
+{% endblock %}
