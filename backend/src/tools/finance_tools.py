@@ -1,10 +1,14 @@
 """Finance/market data fetching tools - Yahoo Finance (unofficial) and Alpha Vantage."""
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
+
+from src.utils.timezone import get_user_today
 
 
 @dataclass
@@ -90,8 +94,6 @@ async def fetch_yahoo_quotes(symbols: list[str]) -> list[dict]:
     """Fetch quotes from Yahoo Finance Chart API (v8) for multiple symbols."""
     if not symbols:
         return []
-
-    import asyncio
 
     async def fetch_single(symbol: str) -> dict | None:
         meta = await fetch_yahoo_chart(symbol)
@@ -218,8 +220,6 @@ async def get_market_summary(
         movers_limit: If set, limit gainers/losers to N each. None = default (5 each).
         user_timezone: IANA timezone string for user's local time context
     """
-    from zoneinfo import ZoneInfo
-
     indices = await get_market_indices()
     gainers, losers = await get_market_movers(movers_limit=movers_limit)
 
@@ -283,8 +283,6 @@ def format_market_for_agent(summary: MarketSummary, user_timezone: str = None) -
         summary: MarketSummary object with market data
         user_timezone: IANA timezone string for date comparison
     """
-    from src.utils.timezone import get_user_today
-
     lines = ["# Market Summary\n"]
 
     # Market status

@@ -41,7 +41,6 @@ assets/*.mp3
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
 

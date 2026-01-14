@@ -1,6 +1,7 @@
 """MinIO storage service for music files."""
 
 import asyncio
+from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -199,7 +200,6 @@ class MinioStorage:
         Returns:
             Presigned URL string
         """
-        from datetime import timedelta
         return self.client.presigned_get_object(
             self.bucket,
             s3_key,

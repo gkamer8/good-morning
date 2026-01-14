@@ -7,17 +7,19 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import router
 from src.api.admin import router as admin_router
 from src.api.auth_routes import router as auth_router
+from src.api.routes import router
 from src.api.website import router as website_router
 from src.config import get_settings
-from src.storage.database import init_db
 from src.scheduler import setup_scheduler
+from src.storage.database import init_db
+from src.storage.minio_storage import get_minio_storage
 from src.version import VERSION
 
 
@@ -41,7 +43,6 @@ async def lifespan(app: FastAPI):
 
     # Initialize MinIO storage bucket
     try:
-        from src.storage.minio_storage import get_minio_storage
         storage = get_minio_storage()
         await storage.ensure_bucket_exists()
     except Exception as e:
@@ -115,8 +116,6 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     settings = get_settings()
     uvicorn.run(
         "src.main:app",

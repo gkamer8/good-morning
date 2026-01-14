@@ -7,6 +7,8 @@ from typing import Optional
 
 import httpx
 
+from src.utils.timezone import get_user_now
+
 
 @dataclass
 class HistoricalEvent:
@@ -69,8 +71,6 @@ async def fetch_this_day_in_history(
                      (events prioritized over births over deaths, then by recency)
         user_timezone: IANA timezone string for determining "today"
     """
-    from src.utils.timezone import get_user_now
-
     now = get_user_now(user_timezone)
     # Wikipedia API requires zero-padded month and day
     month = f"{now.month:02d}"
@@ -206,8 +206,6 @@ async def fetch_word_of_the_day(user_timezone: str = None) -> Optional[WordOfThe
     Args:
         user_timezone: IANA timezone string for determining the day of year
     """
-    from src.utils.timezone import get_user_now
-
     # Using Free Dictionary API
     # Generate a random interesting word from a curated list
     interesting_words = [
@@ -337,8 +335,6 @@ def format_fun_content_for_agent(content: dict, user_timezone: str = None) -> st
         content: Dict with content for each segment type
         user_timezone: IANA timezone string for date formatting
     """
-    from src.utils.timezone import get_user_now
-
     lines = ["# Fun Segments\n"]
 
     # This day in history

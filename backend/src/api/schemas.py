@@ -2,9 +2,121 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
+
+
+# === Utilities ===
+
+
+def partial_model(model: type[BaseModel], name: str | None = None) -> type[BaseModel]:
+    """
+    Create a partial (all-optional) version of a Pydantic model.
+
+    Takes a base model and returns a new model where all fields are Optional
+    with None defaults. Useful for PUT/PATCH update endpoints that accept
+    partial updates.
+
+    Args:
+        model: The base Pydantic model to make partial
+        name: Optional name for the new model (defaults to {ModelName}Update)
+
+    Returns:
+        A new Pydantic model with all fields optional
+    """
+    fields = {
+        field_name: (Optional[field_info.annotation], None)
+        for field_name, field_info in model.model_fields.items()
+    }
+    return create_model(
+        name or f"{model.__name__}Update",
+        __doc__=f"{model.__name__} with all fields optional for partial updates.",
+        **fields,
+    )
+
+
+# === Constants ===
+
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_WRITING_STYLE = "good_morning_america"
+DEFAULT_SEGMENT_ORDER = ["news", "sports", "weather", "fun"]
+DEFAULT_VOICE = "host"
+
+
+# === Enums ===
+
+
+class BriefingStatus(str, Enum):
+    """Status of a briefing generation."""
+
+    PENDING = "pending"
+    GATHERING_CONTENT = "gathering_content"
+    WRITING_SCRIPT = "writing_script"
+    RESEARCHING_STORIES = "researching_stories"
+    GENERATING_AUDIO = "generating_audio"
+    FINALIZING = "finalizing"
+    COMPLETED = "completed"
+    COMPLETED_WITH_WARNINGS = "completed_with_warnings"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class LengthMode(str, Enum):
+    """Briefing length mode."""
+
+    SHORT = "short"
+    LONG = "long"
+
+
+class GenerationPhase(str, Enum):
+    """Phase during briefing generation (for error tracking)."""
+
+    SETUP = "setup"
+    GATHERING_CONTENT = "gathering_content"
+    WRITING_SCRIPT = "writing_script"
+    RESEARCHING_STORIES = "researching_stories"
+    GENERATING_AUDIO = "generating_audio"
+    UNKNOWN = "unknown"
+
+
+class SegmentType(str, Enum):
+    """Types of briefing segments."""
+
+    INTRO = "intro"
+    NEWS = "news"
+    SPORTS = "sports"
+    WEATHER = "weather"
+    FUN = "fun"
+    MUSIC = "music"
+    OUTRO = "outro"
+    UNKNOWN = "unknown"
+
+
+# Set of statuses that indicate briefing is still in progress
+IN_PROGRESS_STATUSES = {
+    BriefingStatus.PENDING,
+    BriefingStatus.GATHERING_CONTENT,
+    BriefingStatus.WRITING_SCRIPT,
+    BriefingStatus.RESEARCHING_STORIES,
+    BriefingStatus.GENERATING_AUDIO,
+    BriefingStatus.FINALIZING,
+}
+
+# Progress percentages and display messages for each status
+STATUS_PROGRESS: dict[BriefingStatus, tuple[int, str]] = {
+    BriefingStatus.PENDING: (0, "Waiting to start..."),
+    BriefingStatus.GATHERING_CONTENT: (2, "Gathering news, sports, and weather..."),
+    BriefingStatus.WRITING_SCRIPT: (8, "Writing radio script..."),
+    BriefingStatus.RESEARCHING_STORIES: (25, "Researching stories in depth..."),
+    BriefingStatus.GENERATING_AUDIO: (50, "Generating audio..."),
+    BriefingStatus.FINALIZING: (95, "Finalizing your briefing..."),
+    BriefingStatus.COMPLETED: (100, "Complete!"),
+    BriefingStatus.COMPLETED_WITH_WARNINGS: (100, "Complete (with warnings)"),
+    BriefingStatus.FAILED: (0, "Generation failed"),
+    BriefingStatus.CANCELLED: (0, "Cancelled"),
+}
 
 
 # === Content Limits Configuration ===
@@ -22,8 +134,8 @@ class ContentLimits:
     target_word_count: int  # Approximate word count
 
 
-CONTENT_LIMITS = {
-    "short": ContentLimits(
+CONTENT_LIMITS: dict[LengthMode, ContentLimits] = {
+    LengthMode.SHORT: ContentLimits(
         news_stories_per_source=1,
         history_events=1,
         finance_movers_limit=1,  # 1 gainer + 1 loser
@@ -31,7 +143,7 @@ CONTENT_LIMITS = {
         target_duration_minutes=5,
         target_word_count=1000,
     ),
-    "long": ContentLimits(
+    LengthMode.LONG: ContentLimits(
         news_stories_per_source=2,
         history_events=2,
         finance_movers_limit=None,  # All (5 + 5)
@@ -209,10 +321,8 @@ class SettingsBase(BaseModel):
     )
 
 
-class SettingsUpdate(SettingsBase):
-    """Settings update request."""
-
-    pass
+# SettingsUpdate: All fields from SettingsBase, but Optional for partial updates
+SettingsUpdate = partial_model(SettingsBase, "SettingsUpdate")
 
 
 class SettingsResponse(SettingsBase):
@@ -239,10 +349,8 @@ class ScheduleBase(BaseModel):
     timezone: str = "America/New_York"
 
 
-class ScheduleUpdate(ScheduleBase):
-    """Schedule update request."""
-
-    pass
+# ScheduleUpdate: All fields from ScheduleBase, but Optional for partial updates
+ScheduleUpdate = partial_model(ScheduleBase, "ScheduleUpdate")
 
 
 class ScheduleResponse(ScheduleBase):
@@ -313,7 +421,6 @@ class GenerationStatus(BaseModel):
     # - gathering_content: fetching news/sports/weather
     # - writing_script: Claude generating script
     # - generating_audio: TTS processing
-    # - awaiting_confirmation: paused, waiting for user decision on error
     # - completed: finished successfully
     # - completed_with_warnings: finished but had non-fatal errors
     # - failed: unrecoverable error
@@ -324,13 +431,6 @@ class GenerationStatus(BaseModel):
     error: Optional[str] = None  # Legacy field for simple errors
     errors: list[GenerationError] = []  # All errors encountered
     pending_action: Optional[PendingAction] = None  # Action awaiting user decision
-
-
-class ErrorResolution(BaseModel):
-    """User's decision on how to handle an error."""
-
-    action_id: str
-    decision: str  # "continue" (use fallback), "cancel", "retry"
 
 
 # === Music Schemas ===
@@ -346,12 +446,6 @@ class MusicPieceBase(BaseModel):
     day_of_year_start: int = Field(default=1, ge=1, le=366)
     day_of_year_end: int = Field(default=366, ge=1, le=366)
     is_active: bool = True
-
-
-class MusicPieceCreate(MusicPieceBase):
-    """Request to create a new music piece (without file - file uploaded separately)."""
-
-    pass
 
 
 class MusicPieceResponse(MusicPieceBase):

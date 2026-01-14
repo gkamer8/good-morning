@@ -21,7 +21,7 @@ async def create_scheduled_briefing_for_user(user_id: int):
             select(UserSettings).where(UserSettings.user_id == user_id)
         )
         user_settings = result.scalar_one_or_none()
-        user_tz = getattr(user_settings, 'timezone', None) or "America/New_York"
+        user_tz = (user_settings.timezone if user_settings else None) or "America/New_York"
 
         # Get user info for logging
         result = await session.execute(select(User).where(User.id == user_id))
@@ -86,7 +86,7 @@ async def setup_scheduler():
 
         # Use UserSettings.timezone as primary, fall back to Schedule.timezone
         user_tz = (
-            getattr(user_settings, 'timezone', None) if user_settings else None
+            user_settings.timezone if user_settings else None
         ) or schedule.timezone or "America/New_York"
 
         # Convert days of week to cron format

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, JSON, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, JSON, DateTime, Float, Integer, String, Text, func, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -82,7 +82,7 @@ class Briefing(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="completed", nullable=False
     )  # pending, gathering_content, writing_script, generating_audio,
-    # awaiting_confirmation, completed, completed_with_warnings, failed, cancelled
+    # completed, completed_with_warnings, failed, cancelled
 
     # Error tracking - stores list of GenerationError dicts
     generation_errors: Mapped[dict] = mapped_column(JSON, default=list)
@@ -246,8 +246,6 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 async def migrate_db():
     """Run database migrations to add any missing columns."""
-    from sqlalchemy import text, inspect
-
     # Define expected columns for each table with their SQLite types and defaults
     expected_columns = {
         "user_settings": {

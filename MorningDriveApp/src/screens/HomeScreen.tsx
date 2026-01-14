@@ -18,6 +18,8 @@ import {
 import TextTicker from 'react-native-text-ticker';
 
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { format } from 'date-fns';
@@ -29,7 +31,7 @@ import { useBriefingsStore } from '../store';
 import { Briefing } from '../types';
 
 export function HomeScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queryClient = useQueryClient();
 
   const {
@@ -265,9 +267,6 @@ export function HomeScreen() {
           } else if (status.status === 'cancelled') {
             cancelPolling();
             stopGeneration();
-          } else if (status.status === 'awaiting_confirmation' && status.pending_action) {
-            showErrorDialog(briefingId, status.pending_action);
-            pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
           } else {
             pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
           }
@@ -374,7 +373,7 @@ export function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => navigation.navigate('Settings' as never)}
+            onPress={() => navigation.navigate('Settings')}
           >
             <Icon name="settings-outline" size={24} color="#666" />
           </TouchableOpacity>
@@ -508,9 +507,9 @@ export function HomeScreen() {
           <TouchableOpacity
             style={styles.miniPlayerContent}
             onPress={() =>
-              navigation.navigate('Player' as never, {
+              navigation.navigate('Player', {
                 briefingId: currentBriefing.id,
-              } as never)
+              })
             }
           >
             <Icon name="radio" size={24} color="#4f46e5" />

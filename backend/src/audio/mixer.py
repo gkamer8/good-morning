@@ -1,10 +1,11 @@
 """Audio mixing and assembly pipeline using pydub/FFmpeg."""
 
+import uuid
 from pathlib import Path
 from typing import Optional
-import uuid
 
 from pydub import AudioSegment as PydubSegment
+from pydub.generators import Sine
 
 from src.audio.tts import AudioSegment
 from src.config import get_settings
@@ -284,8 +285,6 @@ async def create_sample_assets():
     intro_path = settings.assets_dir / "intro.mp3"
     if not intro_path.exists():
         # Generate a simple tone sequence as placeholder
-        from pydub.generators import Sine
-
         # Create a pleasant chord progression
         tone1 = Sine(440).to_audio_segment(duration=500).fade_in(100).fade_out(100)
         tone2 = Sine(554).to_audio_segment(duration=500).fade_in(100).fade_out(100)

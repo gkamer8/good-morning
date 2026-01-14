@@ -54,7 +54,7 @@ export interface PendingAction {
 
 export interface GenerationStatus {
   briefing_id: number;
-  status: string;  // pending, gathering_content, writing_script, generating_audio, awaiting_confirmation, completed, completed_with_warnings, failed, cancelled
+  status: string;  // pending, gathering_content, writing_script, generating_audio, completed, completed_with_warnings, failed, cancelled
   progress_percent: number;
   current_step?: string;
   error?: string;
@@ -118,13 +118,9 @@ export interface PlayerState {
 // === Navigation Types ===
 
 export type RootStackParamList = {
-  Main: undefined;
+  Home: undefined;
   Player: { briefingId: number };
   Settings: undefined;
-  Teams: undefined;
-  NewsTopics: undefined;
-  Locations: undefined;
-  Schedule: undefined;
 };
 
 export type MainTabParamList = {

@@ -19,7 +19,6 @@ data/
 
 # IDE
 .idea/
-.vscode/
 
 # macOS
 .DS_Store

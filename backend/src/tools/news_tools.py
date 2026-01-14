@@ -1,6 +1,7 @@
 """News data fetching tools - RSS feeds and NewsAPI integration."""
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -185,7 +186,6 @@ async def fetch_rss_feed(url: str, source: str, category: str) -> tuple[list[New
                 summary = entry.description
 
             # Strip HTML tags from summary (basic)
-            import re
             summary = re.sub(r"<[^>]+>", "", summary)
             summary = summary[:500]  # Limit length
 

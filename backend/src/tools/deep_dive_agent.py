@@ -5,6 +5,7 @@ from typing import Optional
 
 from anthropic import AsyncAnthropic
 
+from src.api.schemas import CLAUDE_MODEL, DEFAULT_WRITING_STYLE
 from src.config import get_settings
 
 
@@ -21,7 +22,7 @@ async def research_deep_dive(
     topic: str,
     context: str,
     url: Optional[str] = None,
-    writing_style: str = "good_morning_america",
+    writing_style: str = DEFAULT_WRITING_STYLE,
     script_before: str = "",
     script_after: str = "",
 ) -> DeepDiveResult:
@@ -127,7 +128,7 @@ Return ONLY the script text that should be spoken on air - no preamble, no "Here
         iteration += 1
 
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=2000,
             tools=tools,
             messages=messages,

@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.apple import verify_apple_identity_token
 from src.auth.jwt import TokenPair, create_token_pair, verify_token
+from src.auth.middleware import get_current_user
 from src.config import get_settings
 from src.storage.database import AdminSettings, InviteCode, Schedule, User, UserSettings, get_session
 
@@ -234,9 +236,6 @@ async def get_current_user_info(
 
     This endpoint requires authentication and returns user profile information.
     """
-    from src.auth.middleware import get_current_user
-    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
     # Note: This endpoint will be properly secured after we update routes.py
     # For now, it's a placeholder that shows the intended structure.
     raise HTTPException(

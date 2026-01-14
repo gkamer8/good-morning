@@ -41,6 +41,7 @@ import { api } from './services/api';
 import { authService } from './services/auth';
 import { useAppConfigStore, useBriefingsStore, useAuthStore } from './store';
 import { setupCarPlay, updateBriefingsList } from './services/carplay';
+import { RootStackParamList } from './types';
 
 // Create query client
 const queryClient = new QueryClient({
@@ -52,7 +53,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function AppContent() {
   const { serverUrl, setConnected, _hasHydrated } = useAppConfigStore();
