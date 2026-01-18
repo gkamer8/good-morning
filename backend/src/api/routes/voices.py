@@ -63,7 +63,7 @@ async def list_voices(tts_provider: str = "elevenlabs"):
 @router.get("/voices/{voice_id}/preview")
 async def get_voice_preview(voice_id: str):
     """Get or generate a voice preview audio sample."""
-    preview_dir = settings.audio_output_dir / "previews"
+    preview_dir = settings.assets_dir / "audio" / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     is_chatterbox_voice = voice_id.lower() in CHATTERBOX_VOICE_IDS

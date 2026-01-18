@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     # Storage paths
     data_dir: Path = Path("./data")
     assets_dir: Path = Path("./assets")
-    audio_output_dir: Path = Path("./data/audio")
 
     # ElevenLabs settings
     elevenlabs_host_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Default: Rachel
@@ -80,7 +79,6 @@ class Settings(BaseSettings):
         super().__init__(**kwargs)
         # Ensure directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.audio_output_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
 
 

@@ -263,7 +263,8 @@ class TestVoiceEndpoints:
 
         # Create a mock preview file
         with tempfile.TemporaryDirectory() as tmp_dir:
-            preview_dir = Path(tmp_dir) / "previews"
+            # Preview dir is now assets_dir / "audio" / "previews"
+            preview_dir = Path(tmp_dir) / "audio" / "previews"
             preview_dir.mkdir(parents=True)
 
             # Create a fake MP3 file (just needs to be non-empty)
@@ -272,8 +273,8 @@ class TestVoiceEndpoints:
             preview_file.write_bytes(b"fake mp3 content for testing")
 
             # Patch the settings to use our temp directory
-            with patch("src.api.routes.settings") as mock_settings:
-                mock_settings.audio_output_dir = Path(tmp_dir)
+            with patch("src.api.routes.voices.settings") as mock_settings:
+                mock_settings.assets_dir = Path(tmp_dir)
                 mock_settings.elevenlabs_api_key = "test_key"
                 mock_settings.elevenlabs_model_id = "test_model"
 
@@ -289,7 +290,8 @@ class TestVoiceEndpoints:
         from unittest.mock import patch, MagicMock
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            preview_dir = Path(tmp_dir) / "previews"
+            # Preview dir is now assets_dir / "audio" / "previews"
+            preview_dir = Path(tmp_dir) / "audio" / "previews"
             preview_dir.mkdir(parents=True)
 
             # Create an empty file (simulating failed previous generation)
@@ -298,8 +300,8 @@ class TestVoiceEndpoints:
             preview_file.write_bytes(b"")  # Empty file
 
             # Mock the settings and ElevenLabs client
-            with patch("src.api.routes.settings") as mock_settings:
-                mock_settings.audio_output_dir = Path(tmp_dir)
+            with patch("src.api.routes.voices.settings") as mock_settings:
+                mock_settings.assets_dir = Path(tmp_dir)
                 mock_settings.elevenlabs_api_key = None  # Will cause 500 error
 
                 response = client.get(f"/api/voices/{test_voice_id}/preview")
@@ -319,15 +321,16 @@ class TestVoiceEndpoints:
         from unittest.mock import patch
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            preview_dir = Path(tmp_dir) / "previews"
+            # Preview dir is now assets_dir / "audio" / "previews"
+            preview_dir = Path(tmp_dir) / "audio" / "previews"
             preview_dir.mkdir(parents=True)
 
             test_voice_id = "cached_voice_789"
             preview_file = preview_dir / f"{test_voice_id}.mp3"
             preview_file.write_bytes(b"cached mp3 content")
 
-            with patch("src.api.routes.settings") as mock_settings:
-                mock_settings.audio_output_dir = Path(tmp_dir)
+            with patch("src.api.routes.voices.settings") as mock_settings:
+                mock_settings.assets_dir = Path(tmp_dir)
                 mock_settings.elevenlabs_api_key = "test_key"
 
                 # First request

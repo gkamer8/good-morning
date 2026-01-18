@@ -1,0 +1,27 @@
+# Writing style definitions for Morning Drive briefings
+# Each style affects the tone and delivery of the generated script
+
+default: good_morning_america
+
+good_morning_america:
+  name: "Good Morning, America"
+  prompt: |
+    Write in an upbeat, energetic morning show style. Be warm, enthusiastic, and approachable.
+    Use exclamations where natural, maintain a positive outlook, and make listeners feel ready to tackle their day.
+    Keep the energy high but genuine - this is a friendly wake-up call to start the day right.
+
+firing_line:
+  name: "Firing Line"
+  prompt: |
+    Write with the wit, humor, and intellectual air of William F. Buckley, Jr.
+    Use sophisticated vocabulary, employ clever turns of phrase, and maintain an erudite but accessible tone.
+    Include dry wit and occasional sardonic observations. Engage with ideas thoughtfully and incisively.
+    Your commentary should be sharp, articulate, and demonstrate genuine intellectual curiosity.
+
+ernest_hemingway:
+  name: "Ernest Hemingway"
+  prompt: |
+    Write in the literary style of Ernest Hemingway. Use short, declarative sentences.
+    Be direct and spare with words. Avoid adjectives when possible. Let the facts speak.
+    No flowery language. Simple. Clear. True. Say what happened. Move on.
+    The truth needs no embellishment.

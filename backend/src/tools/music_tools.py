@@ -1,6 +1,7 @@
 """Tools for fetching music from the database and MinIO storage."""
 
 import random
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -114,28 +115,20 @@ async def get_random_music_piece() -> Optional[MusicPieceInfo]:
 
 
 async def download_music_audio(piece: MusicPieceInfo) -> Optional[Path]:
-    """Download music audio from MinIO to a local cache.
+    """Download music audio from MinIO to a temporary file.
+
+    The caller is responsible for cleaning up the temp file after use.
 
     Args:
         piece: The music piece to download.
 
     Returns:
-        Path to the local audio file, or None if download fails.
+        Path to the temporary audio file, or None if download fails.
     """
-    settings = get_settings()
-    music_cache_dir = settings.assets_dir / "music_cache"
-    music_cache_dir.mkdir(parents=True, exist_ok=True)
+    # Determine file extension from s3_key
+    ext = Path(piece.s3_key).suffix or ".mp3"
 
-    # Create local path based on s3_key
-    safe_key = piece.s3_key.replace("/", "_")
-    local_path = music_cache_dir / safe_key
-
-    # Return cached version if exists
-    if local_path.exists() and local_path.stat().st_size > 0:
-        print(f"Using cached music: {local_path}")
-        return local_path
-
-    # Download from MinIO
+    # Download from MinIO to temp file
     print(f"Downloading music: {piece.title} from MinIO ({piece.s3_key})")
     try:
         storage = get_minio_storage()
@@ -145,23 +138,26 @@ async def download_music_audio(piece: MusicPieceInfo) -> Optional[Path]:
             print(f"Music file not found in MinIO: {piece.s3_key}")
             return None
 
-        # Download to local path
-        await storage.download_to_file(piece.s3_key, local_path)
+        # Create temp file (caller must clean up)
+        temp_file = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+        temp_path = Path(temp_file.name)
+        temp_file.close()
+
+        # Download to temp path
+        await storage.download_to_file(piece.s3_key, temp_path)
 
         # Verify download
-        if not local_path.exists() or local_path.stat().st_size < 10000:
-            print(f"Downloaded file invalid: {local_path}")
-            if local_path.exists():
-                local_path.unlink()
+        if not temp_path.exists() or temp_path.stat().st_size < 10000:
+            print(f"Downloaded file invalid: {temp_path}")
+            if temp_path.exists():
+                temp_path.unlink()
             return None
 
-        print(f"Downloaded and cached: {local_path} ({local_path.stat().st_size} bytes)")
-        return local_path
+        print(f"Downloaded music to temp file: {temp_path} ({temp_path.stat().st_size} bytes)")
+        return temp_path
 
     except Exception as e:
         print(f"Error downloading music: {e}")
-        if local_path.exists():
-            local_path.unlink()
         return None
 
 

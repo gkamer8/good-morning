@@ -1,0 +1,7 @@
+# Segment type to display name mapping
+# Used in prompts to show human-readable segment names
+
+news: "News"
+sports: "Sports"
+weather: "Weather"
+fun: "Fun segments"

@@ -63,7 +63,3 @@ docker-compose up -d
 ## iOS App
 
 See `MorningDriveApp/README.md` for iOS-specific setup, or the [Development guide](https://morning.g0rdon.com/docs/development) for full instructions.
-
-## License
-
-MIT

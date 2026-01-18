@@ -1,6 +1,7 @@
 """Briefing API endpoints."""
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,7 @@ from src.api.schemas import (
 from src.auth.middleware import get_current_user
 from src.config import get_settings
 from src.storage.database import Briefing, User, UserSettings, get_session
+from src.storage.minio_storage import get_minio_storage
 from src.utils.timezone import get_user_now
 
 
@@ -104,7 +106,7 @@ async def list_briefings(
                 created_at=b.created_at,
                 title=b.title,
                 duration_seconds=b.duration_seconds,
-                audio_url=f"/audio/{b.audio_filename}",
+                audio_url=f"/api/briefings/{b.id}/audio",
                 status=b.status,
                 segments=[
                     BriefingSegment(**seg) for seg in b.segments_metadata.get("segments", [])
@@ -136,7 +138,7 @@ async def get_briefing(
         created_at=briefing.created_at,
         title=briefing.title,
         duration_seconds=briefing.duration_seconds,
-        audio_url=f"/audio/{briefing.audio_filename}",
+        audio_url=f"/api/briefings/{briefing.id}/audio",
         status=briefing.status,
         segments=[
             BriefingSegment(**seg) for seg in briefing.segments_metadata.get("segments", [])
@@ -231,12 +233,66 @@ async def delete_briefing(
     if not briefing:
         raise HTTPException(status_code=404, detail="Briefing not found")
 
-    audio_path = settings.audio_output_dir / briefing.audio_filename
-    if audio_path.exists():
-        audio_path.unlink()
+    # Delete audio from S3 (audio_filename now stores the S3 key)
+    if briefing.audio_filename:
+        try:
+            storage = get_minio_storage()
+            await storage.delete_file(briefing.audio_filename)
+        except Exception as e:
+            print(f"Warning: Could not delete audio from S3: {e}")
 
     await session.delete(briefing)
     await session.commit()
 
     return {"status": "deleted", "id": briefing_id}
+
+
+@router.get("/briefings/{briefing_id}/audio")
+async def stream_briefing_audio(
+    briefing_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Stream briefing audio from S3."""
+    result = await session.execute(
+        select(Briefing).where(Briefing.id == briefing_id, Briefing.user_id == user.id)
+    )
+    briefing = result.scalar_one_or_none()
+
+    if not briefing:
+        raise HTTPException(status_code=404, detail="Briefing not found")
+
+    if not briefing.audio_filename:
+        raise HTTPException(status_code=404, detail="Briefing has no audio")
+
+    storage = get_minio_storage()
+
+    if not await storage.file_exists(briefing.audio_filename):
+        raise HTTPException(status_code=404, detail="Audio file not found in storage")
+
+    # Get file size for Content-Length header
+    try:
+        stat = storage.get_file_stat(briefing.audio_filename)
+        file_size = stat.size
+    except Exception:
+        file_size = None
+
+    def iter_file():
+        response = storage.get_file_stream(briefing.audio_filename)
+        try:
+            for chunk in response.stream(32 * 1024):
+                yield chunk
+        finally:
+            response.close()
+            response.release_conn()
+
+    headers = {"Accept-Ranges": "bytes"}
+    if file_size:
+        headers["Content-Length"] = str(file_size)
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="audio/mpeg",
+        headers=headers,
+    )
 

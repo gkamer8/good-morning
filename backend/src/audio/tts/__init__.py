@@ -2,6 +2,8 @@
 
 import asyncio
 import hashlib
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 from elevenlabs import ElevenLabs
@@ -72,7 +74,8 @@ async def generate_audio_for_script(
     else:
         host_voice_id = EDGE_VOICE_PROFILES.get("host", DEFAULT_EDGE_VOICE)
 
-    temp_dir = settings.audio_output_dir / "temp"
+    # Use system temp directory for TTS audio files (cleaned up by mixer)
+    temp_dir = Path(tempfile.gettempdir()) / "morning_drive_tts"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     audio_segments = []

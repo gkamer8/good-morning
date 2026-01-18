@@ -1,5 +1,6 @@
 """Audio mixing and assembly pipeline using pydub/FFmpeg."""
 
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,7 @@ from pydub.generators import Sine
 
 from src.audio.tts import AudioSegment
 from src.config import get_settings
+from src.storage.minio_storage import get_minio_storage
 
 
 # Audio processing constants
@@ -61,7 +63,7 @@ async def assemble_briefing_audio(
     include_intro: bool = True,
     include_transitions: bool = True,
     music_audio_path: Optional[Path] = None,
-) -> tuple[Path, float, dict]:
+) -> tuple[str, float, dict]:
     """Assemble all audio segments into a final briefing.
 
     Args:
@@ -72,7 +74,7 @@ async def assemble_briefing_audio(
         music_audio_path: Path to music audio file (optional)
 
     Returns:
-        Tuple of (output_path, duration_seconds, segments_metadata)
+        Tuple of (s3_key, duration_seconds, segments_metadata)
     """
     settings = get_settings()
 
@@ -218,6 +220,14 @@ async def assemble_briefing_audio(
         except Exception as e:
             print(f"[Mixer] Error adding music: {e}")
             segments_metadata["music_error"] = str(e)
+        finally:
+            # Clean up music temp file (downloaded from S3)
+            try:
+                if music_audio_path.exists():
+                    music_audio_path.unlink()
+                    print(f"[Mixer] Cleaned up music temp file: {music_audio_path}")
+            except Exception as e:
+                print(f"[Mixer] Warning: Could not clean up music temp file: {e}")
     elif music_audio_path:
         print(f"[Mixer] Music audio file not found: {music_audio_path}")
         segments_metadata["music_error"] = "File not found"
@@ -238,28 +248,42 @@ async def assemble_briefing_audio(
     # Final normalization pass
     final_audio = normalize_audio(final_audio, target_dbfs=-16.0)
 
-    # Generate output filename
-    output_filename = f"briefing_{briefing_id}_{uuid.uuid4().hex[:8]}.mp3"
-    output_path = settings.audio_output_dir / output_filename
-
-    # Export final audio
-    final_audio.export(
-        output_path,
-        format="mp3",
-        bitrate="192k",
-        parameters=[
-            "-ar", str(SAMPLE_RATE),
-            "-ac", str(CHANNELS),
-        ],
-    )
-
     # Calculate final duration
     duration_seconds = len(final_audio) / 1000.0
 
-    # Clean up temp files
+    # Generate S3 key for the briefing
+    s3_key = f"briefings/briefing_{briefing_id}_{uuid.uuid4().hex[:8]}.mp3"
+
+    # Export to temp file, upload to S3, then cleanup
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+        temp_path = Path(tmp_file.name)
+
+    try:
+        # Export final audio to temp file
+        final_audio.export(
+            temp_path,
+            format="mp3",
+            bitrate="192k",
+            parameters=[
+                "-ar", str(SAMPLE_RATE),
+                "-ac", str(CHANNELS),
+            ],
+        )
+
+        # Upload to S3
+        storage = get_minio_storage()
+        await storage.upload_file(temp_path, s3_key, content_type="audio/mpeg")
+        print(f"[Mixer] Uploaded briefing to S3: {s3_key}")
+
+    finally:
+        # Always clean up temp file
+        if temp_path.exists():
+            temp_path.unlink()
+
+    # Clean up TTS temp files
     cleanup_temp_files(audio_segments)
 
-    return output_path, duration_seconds, segments_metadata
+    return s3_key, duration_seconds, segments_metadata
 
 
 def cleanup_temp_files(audio_segments: list[AudioSegment]):

@@ -48,13 +48,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning: Could not initialize MinIO storage: {e}")
 
-    # Mount static files for audio serving
-    app.mount(
-        "/audio",
-        StaticFiles(directory=str(settings.audio_output_dir)),
-        name="audio",
-    )
-
     # Mount static files for CSS/JS assets
     static_dir = Path(__file__).parent.parent / "static"
     if static_dir.exists():

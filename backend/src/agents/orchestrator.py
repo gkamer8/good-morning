@@ -273,7 +273,7 @@ async def generate_briefing_task(
             print(f"[Briefing {briefing_id}] Cancelled before assembling audio")
             return
 
-        final_audio_path, duration_seconds, segments_metadata = await assemble_briefing_audio(
+        s3_key, duration_seconds, segments_metadata = await assemble_briefing_audio(
             briefing_id=briefing_id,
             audio_segments=tts_result.segments,
             include_intro=user_settings.include_intro_music,
@@ -307,7 +307,7 @@ async def generate_briefing_task(
 
                 briefing.title = briefing_title
                 briefing.duration_seconds = duration_seconds
-                briefing.audio_filename = final_audio_path.name
+                briefing.audio_filename = s3_key  # Now stores S3 key instead of filename
                 briefing.script = script.model_dump()
                 briefing.segments_metadata = segments_metadata
                 briefing.pending_action = None
