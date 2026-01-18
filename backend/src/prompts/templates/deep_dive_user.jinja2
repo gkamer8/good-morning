@@ -1,0 +1,20 @@
+Research and write a deep dive segment on this topic:
+
+Topic: {{ topic }}
+Original context: {{ context }}
+{% if url %}Original article URL: {{ url }}{% endif %}
+{% if script_before or script_after %}
+
+SHOW CONTEXT - Your segment will be inserted into an existing script. Match the tone and flow naturally.
+{% if script_before %}
+
+=== SCRIPT BEFORE YOUR SEGMENT ===
+...{{ script_before_preview }}
+[YOUR DEEP DIVE SEGMENT GOES HERE]
+{% endif %}
+{% if script_after %}
+
+=== SCRIPT AFTER YOUR SEGMENT ===
+{{ script_after_preview }}...
+{% endif %}
+{% endif %}
