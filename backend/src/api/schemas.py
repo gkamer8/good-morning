@@ -1,6 +1,5 @@
 """Pydantic schemas for API request/response models."""
 
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -41,17 +40,22 @@ def partial_model(model: type[BaseModel], name: str | None = None) -> type[BaseM
 
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_WRITING_STYLE = "good_morning_america"
-DEFAULT_SEGMENT_ORDER = ["news", "sports", "weather", "fun"]
-DEFAULT_VOICE = "host"
+DEFAULT_SEGMENT_ORDER = [SegmentType.NEWS, SegmentType.SPORTS, SegmentType.WEATHER, SegmentType.FUN]
 
 
 # === Enums ===
 
 
 class BriefingStatus(str, Enum):
-    """Status of a briefing generation."""
+    """Status of a briefing generation.
 
+    This enum represents both the stored status and the generation phases.
+    The order of values reflects the generation progression.
+    """
+
+    # This list is ORDERED by generation progression
     PENDING = "pending"
+    SETUP = "setup"
     GATHERING_CONTENT = "gathering_content"
     WRITING_SCRIPT = "writing_script"
     RESEARCHING_STORIES = "researching_stories"
@@ -61,6 +65,7 @@ class BriefingStatus(str, Enum):
     COMPLETED_WITH_WARNINGS = "completed_with_warnings"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
 
 
 class LengthMode(str, Enum):
@@ -68,17 +73,6 @@ class LengthMode(str, Enum):
 
     SHORT = "short"
     LONG = "long"
-
-
-class GenerationPhase(str, Enum):
-    """Phase during briefing generation (for error tracking)."""
-
-    SETUP = "setup"
-    GATHERING_CONTENT = "gathering_content"
-    WRITING_SCRIPT = "writing_script"
-    RESEARCHING_STORIES = "researching_stories"
-    GENERATING_AUDIO = "generating_audio"
-    UNKNOWN = "unknown"
 
 
 class SegmentType(str, Enum):
@@ -97,6 +91,7 @@ class SegmentType(str, Enum):
 # Set of statuses that indicate briefing is still in progress
 IN_PROGRESS_STATUSES = {
     BriefingStatus.PENDING,
+    BriefingStatus.SETUP,
     BriefingStatus.GATHERING_CONTENT,
     BriefingStatus.WRITING_SCRIPT,
     BriefingStatus.RESEARCHING_STORIES,
@@ -107,6 +102,7 @@ IN_PROGRESS_STATUSES = {
 # Progress percentages and display messages for each status
 STATUS_PROGRESS: dict[BriefingStatus, tuple[int, str]] = {
     BriefingStatus.PENDING: (0, "Waiting to start..."),
+    BriefingStatus.SETUP: (1, "Setting up..."),
     BriefingStatus.GATHERING_CONTENT: (2, "Gathering news, sports, and weather..."),
     BriefingStatus.WRITING_SCRIPT: (8, "Writing radio script..."),
     BriefingStatus.RESEARCHING_STORIES: (25, "Researching stories in depth..."),
@@ -116,41 +112,7 @@ STATUS_PROGRESS: dict[BriefingStatus, tuple[int, str]] = {
     BriefingStatus.COMPLETED_WITH_WARNINGS: (100, "Complete (with warnings)"),
     BriefingStatus.FAILED: (0, "Generation failed"),
     BriefingStatus.CANCELLED: (0, "Cancelled"),
-}
-
-
-# === Content Limits Configuration ===
-
-
-@dataclass
-class ContentLimits:
-    """Content limits based on briefing length mode."""
-
-    news_stories_per_source: int  # Stories per news outlet
-    history_events: int  # This Day in History events
-    finance_movers_limit: Optional[int]  # Gainers/losers each; None = all
-    sports_favorite_teams_only: bool  # True = only favorite teams
-    target_duration_minutes: int  # Target briefing duration
-    target_word_count: int  # Approximate word count
-
-
-CONTENT_LIMITS: dict[LengthMode, ContentLimits] = {
-    LengthMode.SHORT: ContentLimits(
-        news_stories_per_source=1,
-        history_events=1,
-        finance_movers_limit=1,  # 1 gainer + 1 loser
-        sports_favorite_teams_only=True,
-        target_duration_minutes=5,
-        target_word_count=1000,
-    ),
-    LengthMode.LONG: ContentLimits(
-        news_stories_per_source=2,
-        history_events=2,
-        finance_movers_limit=None,  # All (5 + 5)
-        sports_favorite_teams_only=False,
-        target_duration_minutes=10,
-        target_word_count=2000,
-    ),
+    BriefingStatus.UNKNOWN: (0, "Unknown"),
 }
 
 
@@ -160,7 +122,7 @@ CONTENT_LIMITS: dict[LengthMode, ContentLimits] = {
 class BriefingSegment(BaseModel):
     """A segment within a briefing."""
 
-    type: str  # intro, news, sports, weather, fun, music, outro
+    type: SegmentType
     start_time: float  # seconds from start
     end_time: float
     title: str
@@ -177,12 +139,7 @@ class BriefingBase(BaseModel):
 class BriefingCreate(BaseModel):
     """Request to generate a new briefing."""
 
-    override_length: Optional[str] = Field(
-        default=None,
-        description="Override briefing length: 'short' or 'long'",
-        pattern="^(short|long)$",
-    )
-    override_topics: Optional[list[str]] = None
+    pass
 
 
 class BriefingResponse(BriefingBase):
@@ -268,31 +225,22 @@ class SettingsBase(BaseModel):
         description="Topics to exclude from news segment (e.g., 'earthquakes outside US', 'celebrity gossip')",
     )
 
-    # Voice settings
-    voice_id: str = Field(
-        default="timmy",  # Default Chatterbox voice
-        description="Voice ID (provider-specific: Chatterbox uses 'timmy', 'austin', 'alice'; ElevenLabs uses their voice IDs)",
+    # Voice settings - voice_key references a predefined Voice configuration
+    voice_key: str = Field(
+        description="Voice key referencing a predefined voice (e.g., 'chatterbox_timmy', 'edge_guy')",
     )
     voice_style: str = Field(
-        default="energetic",
         description="Voice style: energetic, calm, professional",
     )
     voice_speed: float = Field(
-        default=1.1,
         ge=0.5,
         le=2.0,
         description="Voice speed multiplier (1.0 = normal, higher = faster)",
     )
 
-    # TTS Provider
-    tts_provider: str = Field(
-        default="chatterbox",
-        description="TTS provider: 'chatterbox' (self-hosted), 'elevenlabs' (paid), or 'edge' (free, Microsoft)",
-    )
-
     # Segment ordering
-    segment_order: list[str] = Field(
-        default=["news", "sports", "weather", "fun"],
+    segment_order: list[SegmentType] = Field(
+        default=[SegmentType.NEWS, SegmentType.SPORTS, SegmentType.WEATHER, SegmentType.FUN],
         description="Order of main content segments (intro/outro are always first/last)",
     )
 
@@ -368,16 +316,13 @@ class ScheduleResponse(ScheduleBase):
 class ScriptSegmentItem(BaseModel):
     """An item within a script segment."""
 
-    voice: str = "host"  # host, quote
-    voice_profile: Optional[str] = None  # For quotes: male_american_40s, etc.
     text: str
-    attribution: Optional[str] = None  # For quotes: who said it
 
 
 class ScriptSegment(BaseModel):
     """A segment in the full script."""
 
-    type: str  # intro, news, sports, weather, fun, music, outro
+    type: SegmentType
     items: list[ScriptSegmentItem] = []
     background_music: Optional[str] = None
     transition_in: Optional[str] = None

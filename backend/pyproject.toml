@@ -13,7 +13,6 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.0",
     "feedparser>=6.0.0",
     "pydub>=0.25.0",
-    "elevenlabs>=1.0.0",
     "anthropic>=0.40.0",
     "python-multipart>=0.0.6",
     "apscheduler>=3.10.0",
@@ -55,4 +54,3 @@ strict = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]

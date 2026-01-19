@@ -415,7 +415,7 @@
                                         <div class="tts-item">
                                             <div class="tts-item-header">
                                                 <span class="tts-item-index">#${seg.originalIndex + 1}</span>
-                                                <span class="tts-item-voice">voice: ${seg.voice_id}</span>
+                                                <span class="tts-item-voice">voice: ${seg.voice_display_name}</span>
                                                 <span class="tts-item-duration">${(seg.duration_seconds || 0).toFixed(1)}s</span>
                                             </div>
                                             <div class="tts-item-text">${escapeHtml(seg.text)}</div>

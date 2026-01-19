@@ -1,7 +1,6 @@
 """Tools for fetching music from the database and MinIO storage."""
 
 import random
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +23,6 @@ class MusicPieceInfo:
     description: Optional[str]
     duration_seconds: float
     s3_key: str
-    local_path: Optional[Path] = None
 
 
 async def get_available_music_pieces(day_of_year: Optional[int] = None) -> list[MusicPieceInfo]:
@@ -114,21 +112,23 @@ async def get_random_music_piece() -> Optional[MusicPieceInfo]:
     return random.choice(pieces)
 
 
-async def download_music_audio(piece: MusicPieceInfo) -> Optional[Path]:
-    """Download music audio from MinIO to a temporary file.
-
-    The caller is responsible for cleaning up the temp file after use.
+async def download_music_audio(
+    piece: MusicPieceInfo,
+    output_dir: Path,
+) -> Optional[Path]:
+    """Download music audio from MinIO to the specified directory.
 
     Args:
         piece: The music piece to download.
+        output_dir: Directory to save the file to (managed by caller for cleanup).
 
     Returns:
-        Path to the temporary audio file, or None if download fails.
+        Path to the audio file, or None if download fails.
     """
     # Determine file extension from s3_key
     ext = Path(piece.s3_key).suffix or ".mp3"
 
-    # Download from MinIO to temp file
+    # Download from MinIO to output directory
     print(f"Downloading music: {piece.title} from MinIO ({piece.s3_key})")
     try:
         storage = get_minio_storage()
@@ -138,45 +138,23 @@ async def download_music_audio(piece: MusicPieceInfo) -> Optional[Path]:
             print(f"Music file not found in MinIO: {piece.s3_key}")
             return None
 
-        # Create temp file (caller must clean up)
-        temp_file = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
-        temp_path = Path(temp_file.name)
-        temp_file.close()
+        # Create file in output directory (managed by orchestrator)
+        output_path = output_dir / f"music_{piece.id}{ext}"
 
-        # Download to temp path
-        await storage.download_to_file(piece.s3_key, temp_path)
+        # Download to output path
+        await storage.download_to_file(piece.s3_key, output_path)
 
         # Verify download
-        if not temp_path.exists() or temp_path.stat().st_size < 10000:
-            print(f"Downloaded file invalid: {temp_path}")
-            if temp_path.exists():
-                temp_path.unlink()
+        if not output_path.exists() or output_path.stat().st_size < 10000:
+            print(f"Downloaded file invalid: {output_path}")
             return None
 
-        print(f"Downloaded music to temp file: {temp_path} ({temp_path.stat().st_size} bytes)")
-        return temp_path
+        print(f"Downloaded music to: {output_path} ({output_path.stat().st_size} bytes)")
+        return output_path
 
     except Exception as e:
         print(f"Error downloading music: {e}")
         return None
-
-
-async def get_music_audio_path(piece: MusicPieceInfo) -> Optional[Path]:
-    """Get the local path to music audio, downloading if necessary.
-
-    Args:
-        piece: The music piece to get audio for.
-
-    Returns:
-        Path to the local audio file, or None if unavailable.
-    """
-    if piece.local_path and piece.local_path.exists():
-        return piece.local_path
-
-    local_path = await download_music_audio(piece)
-    if local_path:
-        piece.local_path = local_path
-    return local_path
 
 
 def format_music_for_agent(piece: MusicPieceInfo) -> str:
@@ -206,35 +184,3 @@ The actual music WILL play after your introduction, so end with a smooth transit
 "And now, here is {piece.title} by {piece.composer}..." or "Let's listen to {piece.title}..."
 Keep the introduction under 30 seconds so listeners can enjoy the music.
 """
-
-
-async def get_music_with_audio(date_str: Optional[str] = None) -> tuple[Optional[Path], Optional[MusicPieceInfo]]:
-    """Get a music piece with its audio file ready.
-
-    This is the main function to use when generating a briefing.
-    It selects a piece (deterministically based on date if provided),
-    downloads the audio, and returns both.
-
-    Args:
-        date_str: Optional date string for deterministic selection.
-
-    Returns:
-        Tuple of (audio_path, piece_info) or (None, None) if unavailable.
-    """
-    # Get piece selection
-    if date_str:
-        piece = await get_music_piece_for_date(date_str)
-    else:
-        piece = await get_random_music_piece()
-
-    if not piece:
-        print("No music pieces available in database")
-        return None, None
-
-    # Download audio
-    audio_path = await get_music_audio_path(piece)
-    if not audio_path:
-        print(f"Failed to download audio for: {piece.title}")
-        return None, piece
-
-    return audio_path, piece

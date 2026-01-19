@@ -2,11 +2,13 @@
 
 import asyncio
 
-from src.api.schemas import CONTENT_LIMITS, LengthMode
+from src.api.schemas import LengthMode
+from src.briefing.generation_errors import catch_async_generation_errors
+from src.briefing.length_rules import LENGTH_RULES
 from src.storage.database import UserSettings
 from src.tools.finance_tools import format_market_for_agent, get_market_summary
 from src.tools.fun_tools import format_fun_content_for_agent, get_fun_content
-from src.tools.music_tools import format_music_for_agent, get_music_with_audio
+from src.tools.music_tools import format_music_for_agent, get_music_piece_for_date
 from src.tools.news_tools import format_news_for_agent, get_top_news
 from src.tools.sports_tools import (
     format_sports_for_agent,
@@ -18,7 +20,11 @@ from src.tools.weather_tools import format_weather_for_agent, get_weather_for_lo
 from src.utils.timezone import get_user_now
 
 
+@catch_async_generation_errors(
+    fallback_fn=None  # Not recoverable
+)
 async def gather_all_content(
+    _briefing_id: int,
     settings: UserSettings,
     include_music: bool = False,
     length_mode: LengthMode = LengthMode.SHORT,
@@ -32,15 +38,15 @@ async def gather_all_content(
         length_mode: LengthMode.SHORT or LengthMode.LONG - controls content limits
         user_timezone: IANA timezone string for date/time operations
     """
-    limits = CONTENT_LIMITS.get(length_mode, CONTENT_LIMITS[LengthMode.SHORT])
-    print(f"[Content] gather_all_content: length_mode={length_mode!r}, limits.history_events={limits.history_events}")
+    rules = LENGTH_RULES[length_mode]
+    print(f"[Content] gather_all_content: length_mode={length_mode!r}, rules.history_events={rules.history_events}")
 
     async def fetch_news():
         result = await get_top_news(
             sources=settings.news_sources or ["bbc", "npr", "nyt"],
             topics=settings.news_topics or ["top", "technology", "business"],
             limit=10,
-            stories_per_source=limits.news_stories_per_source,
+            stories_per_source=rules.news_stories_per_source,
         )
         return {
             "text": format_news_for_agent(result.articles),
@@ -54,7 +60,7 @@ async def gather_all_content(
         scores = await get_scores_for_leagues(
             leagues,
             user_timezone=user_timezone,
-            favorite_teams_only=limits.sports_favorite_teams_only,
+            favorite_teams_only=rules.sports_favorite_teams_only,
             favorite_teams=teams,
         )
         news = await get_sports_news(leagues, limit_per_league=2)
@@ -78,7 +84,7 @@ async def gather_all_content(
         ]
         content = await get_fun_content(
             segments,
-            history_limit=limits.history_events,
+            history_limit=rules.history_events,
             user_timezone=user_timezone,
         )
         return format_fun_content_for_agent(content, user_timezone=user_timezone)
@@ -86,34 +92,27 @@ async def gather_all_content(
     async def fetch_market():
         if "market_minute" in (settings.fun_segments or []):
             summary = await get_market_summary(
-                movers_limit=limits.finance_movers_limit,
+                movers_limit=rules.finance_movers_limit,
                 user_timezone=user_timezone,
             )
             return format_market_for_agent(summary, user_timezone=user_timezone)
         return ""
 
     async def fetch_music():
+        """Fetch music piece info (audio download is handled by orchestrator)."""
         if include_music:
             today = get_user_now(user_timezone).strftime("%Y-%m-%d")
-            audio_path, piece = await get_music_with_audio(today)
+            piece = await get_music_piece_for_date(today)
 
-            if audio_path and piece:
+            if piece:
                 return {
                     "text": format_music_for_agent(piece),
                     "piece": piece,
-                    "audio_path": audio_path,
-                }
-            elif piece:
-                print(f"WARNING: Music audio unavailable for {piece.title}, skipping music playback")
-                return {
-                    "text": format_music_for_agent(piece),
-                    "piece": piece,
-                    "audio_path": None,
                 }
             else:
                 print("WARNING: No music pieces available in database")
-                return {"text": "", "piece": None, "audio_path": None}
-        return {"text": "", "piece": None, "audio_path": None}
+                return {"text": "", "piece": None}
+        return {"text": "", "piece": None}
 
     # Run all fetches in parallel
     results = await asyncio.gather(
@@ -128,7 +127,7 @@ async def gather_all_content(
 
     # Handle any errors gracefully
     news_result = results[0] if not isinstance(results[0], Exception) else {"text": "News unavailable.", "errors": []}
-    music_result = results[5] if not isinstance(results[5], Exception) else {"text": "", "piece": None, "audio_path": None}
+    music_result = results[5] if not isinstance(results[5], Exception) else {"text": "", "piece": None}
 
     content = {
         "news": news_result.get("text", "News unavailable.") if isinstance(news_result, dict) else "News unavailable.",
@@ -139,7 +138,6 @@ async def gather_all_content(
         "market": results[4] if not isinstance(results[4], Exception) else "",
         "music": music_result.get("text", "") if isinstance(music_result, dict) else "",
         "music_piece": music_result.get("piece") if isinstance(music_result, dict) else None,
-        "music_audio_path": music_result.get("audio_path") if isinstance(music_result, dict) else None,
     }
 
     return content

@@ -1,10 +1,10 @@
 """Fun segment tools - This Day in History, quotes, trivia, etc."""
 
-import random
+import re
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
+import feedparser
 import httpx
 
 from src.utils.timezone import get_user_now
@@ -55,21 +55,14 @@ USER_AGENT = "MorningDrive/1.0 (Personal Morning Briefing App; gkamer@example.co
 
 
 async def fetch_this_day_in_history(
-    limit_events: int = 5,
-    limit_births: int = 3,
-    limit_deaths: int = 2,
-    total_limit: Optional[int] = None,
-    user_timezone: str = None,
+    user_timezone: str,
+    max_events: int = 5
 ) -> list[HistoricalEvent]:
     """Fetch events that happened on this day in history.
 
     Args:
-        limit_events: Max selected historical events
-        limit_births: Max notable births
-        limit_deaths: Max notable deaths
-        total_limit: If set, return only the top N most important events total
-                     (events prioritized over births over deaths, then by recency)
         user_timezone: IANA timezone string for determining "today"
+        max_events: Max number of historical events to return
     """
     now = get_user_now(user_timezone)
     # Wikipedia API requires zero-padded month and day
@@ -78,192 +71,118 @@ async def fetch_this_day_in_history(
 
     events = []
 
-    try:
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": USER_AGENT,
-        }
-        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-            # Fetch all types
-            response = await client.get(f"{WIKIPEDIA_API}/all/{month}/{day}")
-            response.raise_for_status()
-            data = response.json()
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    }
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+        # Fetch all types
+        response = await client.get(f"{WIKIPEDIA_API}/all/{month}/{day}")
+        response.raise_for_status()
+        data = response.json()
 
-        # Selected events
-        selected = data.get("selected", [])
-        for item in selected[:limit_events]:
-            events.append(
-                HistoricalEvent(
-                    year=item.get("year", 0),
-                    description=item.get("text", ""),
-                    category="event",
-                )
+    # Selected events
+    selected = data.get("selected", [])
+    for item in selected[:max_events]:
+        events.append(
+            HistoricalEvent(
+                year=item.get("year", 0),
+                description=item.get("text", ""),
+                category="event",
             )
+        )
 
-        # Notable births
-        births = data.get("births", [])
-        for item in births[:limit_births]:
-            events.append(
-                HistoricalEvent(
-                    year=item.get("year", 0),
-                    description=f"{item.get('text', '')} was born",
-                    category="birth",
-                )
-            )
-
-        # Notable deaths
-        deaths = data.get("deaths", [])
-        for item in deaths[:limit_deaths]:
-            events.append(
-                HistoricalEvent(
-                    year=item.get("year", 0),
-                    description=f"{item.get('text', '')} passed away",
-                    category="death",
-                )
-            )
-
-    except Exception as e:
-        print(f"Error fetching historical events: {e}")
-
-    print(f"[History] fetch_this_day_in_history: total_limit={total_limit!r}, fetched {len(events)} events before filtering")
-
-    # If total_limit is set, return only the top N most important events
-    # Priority: events > births > deaths, then by recency (more recent history first)
-    if total_limit is not None and len(events) > total_limit:
-        def importance_key(event: HistoricalEvent) -> tuple[int, int]:
-            category_priority = {"event": 0, "birth": 1, "death": 2}
-            return (category_priority.get(event.category, 3), -event.year)
-
-        events.sort(key=importance_key)
-        events = events[:total_limit]
-
-    print(f"[History] Returning {len(events)} events after filtering")
     return events
 
 
 async def fetch_quote_of_the_day() -> Optional[Quote]:
     """Fetch an inspirational quote."""
     # Using ZenQuotes API (free, no key required)
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get("https://zenquotes.io/api/today")
-            response.raise_for_status()
-            data = response.json()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get("https://zenquotes.io/api/today")
+        response.raise_for_status()
+        data = response.json()
 
-        if data and len(data) > 0:
-            quote_data = data[0]
-            return Quote(
-                text=quote_data.get("q", ""),
-                author=quote_data.get("a", "Unknown"),
-            )
-
-    except Exception as e:
-        print(f"Error fetching quote: {e}")
-
-    # Fallback quotes
-    fallback_quotes = [
-        Quote("The only way to do great work is to love what you do.", "Steve Jobs"),
-        Quote("Innovation distinguishes between a leader and a follower.", "Steve Jobs"),
-        Quote("Stay hungry, stay foolish.", "Steve Jobs"),
-        Quote("The future belongs to those who believe in the beauty of their dreams.", "Eleanor Roosevelt"),
-        Quote("It is during our darkest moments that we must focus to see the light.", "Aristotle"),
-    ]
-    return random.choice(fallback_quotes)
+    quote_data = data[0]
+    return Quote(
+        text=quote_data.get("q", ""),
+        author=quote_data.get("a", "Unknown"),
+    )
 
 
 async def fetch_dad_joke() -> Optional[DadJoke]:
     """Fetch a random dad joke."""
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                "https://icanhazdadjoke.com/",
-                headers={"Accept": "application/json"},
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        return DadJoke(
-            setup=data.get("joke", ""),
-            punchline=None,  # This API returns one-liner jokes
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            "https://icanhazdadjoke.com/",
+            headers={"Accept": "application/json"},
         )
+        response.raise_for_status()
+        data = response.json()
 
-    except Exception as e:
-        print(f"Error fetching dad joke: {e}")
-
-    # Fallback jokes
-    fallback_jokes = [
-        DadJoke("Why don't scientists trust atoms?", "Because they make up everything!"),
-        DadJoke("I used to hate facial hair...", "But then it grew on me."),
-        DadJoke("What do you call a fake noodle?", "An impasta!"),
-        DadJoke("Why did the scarecrow win an award?", "Because he was outstanding in his field!"),
-    ]
-    return random.choice(fallback_jokes)
+    return DadJoke(
+        setup=data.get("joke", ""),
+        punchline=None,  # This API returns one-liner jokes
+    )
 
 
 async def fetch_word_of_the_day(user_timezone: str = None) -> Optional[WordOfTheDay]:
-    """Fetch word of the day.
+    """Fetch word of the day from Merriam-Webster RSS feed.
 
     Args:
-        user_timezone: IANA timezone string for determining the day of year
+        user_timezone: IANA timezone string (unused, kept for API compatibility)
     """
-    # Using Free Dictionary API
-    # Generate a random interesting word from a curated list
-    interesting_words = [
-        "serendipity", "ephemeral", "eloquent", "resilience", "ubiquitous",
-        "quintessential", "juxtaposition", "paradigm", "ethereal", "mellifluous",
-        "perspicacious", "surreptitious", "ineffable", "luminous", "enigmatic",
-        "ephemeral", "cacophony", "epiphany", "labyrinthine", "vicissitude",
-    ]
+    _ = user_timezone  # Kept for API compatibility
 
-    # Pick based on day of year for consistency
-    day_of_year = get_user_now(user_timezone).timetuple().tm_yday
-    word = interesting_words[day_of_year % len(interesting_words)]
+    MERRIAM_WEBSTER_RSS = "https://www.merriam-webster.com/wotd/feed/rss2"
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-            )
-            response.raise_for_status()
-            data = response.json()
+    # feedparser can fetch and parse in one step
+    feed = feedparser.parse(MERRIAM_WEBSTER_RSS)
 
-        if data and len(data) > 0:
-            entry = data[0]
-            meanings = entry.get("meanings", [])
+    if not feed.entries:
+        return None
 
-            if meanings:
-                meaning = meanings[0]
-                definitions = meaning.get("definitions", [])
+    entry = feed.entries[0]  # Today's word is the first entry
 
-                if definitions:
-                    definition = definitions[0]
+    word = entry.get("title", "").strip()
+    definition = entry.get("merriam_shortdef", "").strip()
+    description = entry.get("summary", "")
 
-                    phonetic = ""
-                    phonetics = entry.get("phonetics", [])
-                    for p in phonetics:
-                        if p.get("text"):
-                            phonetic = p["text"]
-                            break
+    # Parse pronunciation (pattern: \ih-LISS-it\)
+    pronunciation = None
+    pron_match = re.search(r"\\([^\\]+)\\", description)
+    if pron_match:
+        pronunciation = pron_match.group(1).strip()
 
-                    return WordOfTheDay(
-                        word=word,
-                        part_of_speech=meaning.get("partOfSpeech", ""),
-                        definition=definition.get("definition", ""),
-                        example=definition.get("example"),
-                        pronunciation=phonetic or None,
-                    )
+    # Parse part of speech (comes after pronunciation, in <em> tags before <br />)
+    part_of_speech = ""
+    pos_match = re.search(r"<em>(\w+)</em>\s*<br", description)
+    if pos_match:
+        part_of_speech = pos_match.group(1).strip()
 
-    except Exception as e:
-        print(f"Error fetching word definition: {e}")
+    # Parse example (lines starting with //)
+    example = None
+    example_match = re.search(r"//\s*([^<]+)<", description)
+    if example_match:
+        example = example_match.group(1).strip()
+
+    if word:
+        return WordOfTheDay(
+            word=word,
+            part_of_speech=part_of_speech,
+            definition=definition,
+            example=example,
+            pronunciation=pronunciation,
+        )
 
     return None
 
 
-async def fetch_sports_history() -> list[HistoricalEvent]:
+async def fetch_sports_history(user_timezone: str = "UTC") -> list[HistoricalEvent]:
     """Fetch sports events that happened on this day."""
     # This would ideally use a sports history API
     # For now, we'll rely on the Wikipedia API and filter
-    events = await fetch_this_day_in_history(limit_events=10, limit_births=0, limit_deaths=0)
+    events = await fetch_this_day_in_history(user_timezone=user_timezone, max_events=10)
 
     # Simple keyword filter for sports-related events
     sports_keywords = [
@@ -309,8 +228,8 @@ async def get_fun_content(
     for segment in segments:
         if segment == "this_day_in_history":
             events = await fetch_this_day_in_history(
-                total_limit=history_limit,
-                user_timezone=user_timezone,
+                user_timezone=user_timezone or "UTC",
+                max_events=history_limit or 5,
             )
             print(f"[Fun Content] fetch_this_day_in_history returned {len(events)} events")
             content["this_day_in_history"] = events
@@ -323,7 +242,7 @@ async def get_fun_content(
                 user_timezone=user_timezone,
             )
         elif segment == "sports_history":
-            content["sports_history"] = await fetch_sports_history()
+            content["sports_history"] = await fetch_sports_history(user_timezone=user_timezone or "UTC")
 
     return content
 

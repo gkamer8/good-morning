@@ -25,37 +25,6 @@ class NewsArticle:
     author: Optional[str] = None
 
 
-@dataclass
-class NewsFetchError:
-    """An error that occurred during news fetching."""
-
-    source: str
-    category: str
-    error_message: str
-
-
-@dataclass
-class NewsFetchResult:
-    """Result of fetching news, including articles and any errors."""
-
-    articles: list[NewsArticle]
-    errors: list[NewsFetchError]
-
-    @property
-    def has_errors(self) -> bool:
-        return len(self.errors) > 0
-
-    @property
-    def partial_failure(self) -> bool:
-        """True if some feeds failed but we still got articles."""
-        return self.has_errors and len(self.articles) > 0
-
-    @property
-    def total_failure(self) -> bool:
-        """True if all feeds failed and we got no articles."""
-        return self.has_errors and len(self.articles) == 0
-
-
 # User-Agent header to avoid 403 errors from some RSS servers
 USER_AGENT = "MorningDrive/1.0 (Personal News Aggregator)"
 

@@ -8,14 +8,15 @@ from anthropic import AsyncAnthropic
 from src.api.schemas import (
     BriefingScript,
     CLAUDE_MODEL,
-    CONTENT_LIMITS,
     DEFAULT_SEGMENT_ORDER,
-    DEFAULT_VOICE,
     DEFAULT_WRITING_STYLE,
     LengthMode,
     ScriptSegment,
     ScriptSegmentItem,
+    SegmentType,
 )
+from src.briefing.generation_errors import catch_async_generation_errors
+from src.briefing.length_rules import LENGTH_RULES
 from src.config import get_settings
 from src.prompts import (
     PromptRenderer,
@@ -131,7 +132,11 @@ async def process_deep_dive_tags(
     return script
 
 
+@catch_async_generation_errors(
+    fallback_fn=lambda script, user_timezone=None, prompt_renderer=None: "Today's Briefing"  # It's OK if this step fails, return this title
+)
 async def generate_briefing_title(
+    briefing_id: int,
     script: BriefingScript,
     user_timezone: str = None,
     prompt_renderer: PromptRenderer = None,
@@ -166,8 +171,11 @@ async def generate_briefing_title(
     topic_words = topic_words.strip('"\'.,')
     return f"{date_str} - {topic_words}"
 
-
+@catch_async_generation_errors(
+    fallback_fn=None  # Not recoverable
+)
 async def generate_script_with_claude(
+    briefing_id: int,
     content: dict,
     length_mode: LengthMode,
     segment_order: list[str] = None,
@@ -191,9 +199,9 @@ async def generate_script_with_claude(
         news_exclusions: Topics to exclude from news segment (not history or other segments)
         deep_dive_count: Number of stories to mark for deep dive research (0 = disabled)
     """
-    limits = CONTENT_LIMITS.get(length_mode, CONTENT_LIMITS[LengthMode.SHORT])
-    target_duration_minutes = limits.target_duration_minutes
-    target_word_count = limits.target_word_count
+    rules = LENGTH_RULES[length_mode]
+    target_duration_minutes = rules.target_duration_minutes
+    target_word_count = rules.target_word_count
 
     settings = get_settings()
 
@@ -224,13 +232,13 @@ async def generate_script_with_claude(
 
     content_sections = []
     for segment_type in segment_order:
-        if segment_type == "news" and content.get("news"):
+        if segment_type == SegmentType.NEWS and content.get("news"):
             content_sections.append(content["news"])
-        elif segment_type == "sports" and content.get("sports"):
+        elif segment_type == SegmentType.SPORTS and content.get("sports"):
             content_sections.append(content["sports"])
-        elif segment_type == "weather" and content.get("weather"):
+        elif segment_type == SegmentType.WEATHER and content.get("weather"):
             content_sections.append(content["weather"])
-        elif segment_type == "fun":
+        elif segment_type == SegmentType.FUN:
             if content.get("fun"):
                 content_sections.append(content["fun"])
             if content.get("market"):
@@ -266,49 +274,20 @@ async def generate_script_with_claude(
 
     response_text = message.content[0].text
 
-    try:
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
+    # Some model nonsense robustness
+    if "```json" in response_text:
+        response_text = response_text.split("```json")[1].split("```")[0]
+    elif "```" in response_text:
+        response_text = response_text.split("```")[1].split("```")[0]
 
-        script_data = json.loads(response_text.strip())
-    except json.JSONDecodeError as e:
-        print(f"Failed to parse Claude response as JSON: {e}")
-        print(f"Response: {response_text[:500]}...")
-        script_data = {
-            "segments": [
-                {
-                    "type": "intro",
-                    "items": [
-                        {
-                            "voice": "host",
-                            "text": f"Good morning! It's {today.strftime('%A, %B %d, %Y')}, and this is your Morning Drive briefing.",
-                        }
-                    ],
-                },
-                {
-                    "type": "outro",
-                    "items": [
-                        {
-                            "voice": "host",
-                            "text": "That's all for today's Morning Drive. Have a great day!",
-                        }
-                    ],
-                },
-            ]
-        }
-
+    script_data = json.loads(response_text.strip())
     segments = []
     for seg in script_data.get("segments", []):
         items = []
         for item in seg.get("items", []):
             items.append(
                 ScriptSegmentItem(
-                    voice=item.get("voice", DEFAULT_VOICE),
-                    voice_profile=item.get("voice_profile"),
                     text=item.get("text", ""),
-                    attribution=item.get("attribution"),
                 )
             )
         segments.append(

@@ -119,46 +119,38 @@ class TestSettingsEndpoints:
 class TestVoiceSelection:
     """Tests for voice selection in settings."""
 
-    def test_update_voice_id_with_stock_voice(self, client):
-        """Test updating voice_id with a stock voice ID works."""
-        # Rachel is a valid stock voice
-        response = client.put("/api/settings", json={"voice_id": "21m00Tcm4TlvDq8ikWAM"})
+    def test_update_voice_id_with_chatterbox_voice(self, client):
+        """Test updating voice_id with a Chatterbox voice ID works."""
+        # Timmy is a valid Chatterbox voice
+        response = client.put("/api/settings", json={"voice_id": "timmy"})
         assert response.status_code == 200
-        assert response.json()["voice_id"] == "21m00Tcm4TlvDq8ikWAM"
+        assert response.json()["voice_id"] == "timmy"
 
-    def test_update_voice_id_with_custom_voice(self, client):
-        """Test updating voice_id with a custom voice ID works.
-
-        Custom voices are configured in settings.elevenlabs_custom_voice_ids.
-        They should be accepted, not silently replaced with the default.
-        """
-        # "Firing Line" custom voice from config.py
-        custom_voice_id = "BG48ZiEunXWfskS4bWOW"
-        response = client.put("/api/settings", json={"voice_id": custom_voice_id})
+    def test_update_voice_id_with_alice_voice(self, client):
+        """Test updating voice_id with the Alice voice ID works."""
+        response = client.put("/api/settings", json={"voice_id": "alice"})
         assert response.status_code == 200
-        # Should keep the custom voice, NOT replace with default
-        assert response.json()["voice_id"] == custom_voice_id, \
-            "Custom voice was silently replaced with default - validation should accept custom voices"
+        assert response.json()["voice_id"] == "alice"
 
     def test_update_voice_id_invalid_falls_back_to_default(self, client):
         """Test that truly invalid voice IDs fall back to default."""
         invalid_voice_id = "invalid_voice_id_12345"
         response = client.put("/api/settings", json={"voice_id": invalid_voice_id})
         assert response.status_code == 200
-        # Invalid voice should fall back to default (Rachel)
-        assert response.json()["voice_id"] == "21m00Tcm4TlvDq8ikWAM"
+        # Invalid voice should fall back to default (timmy)
+        assert response.json()["voice_id"] == "timmy"
 
     def test_voice_id_persists_after_update(self, client):
         """Test that voice_id selection persists correctly."""
-        # Set to Adam
-        client.put("/api/settings", json={"voice_id": "pNInz6obpgDQGcFmaJgB"})
+        # Set to austin
+        client.put("/api/settings", json={"voice_id": "austin"})
 
         # Verify it persisted
         response = client.get("/api/settings")
-        assert response.json()["voice_id"] == "pNInz6obpgDQGcFmaJgB"
+        assert response.json()["voice_id"] == "austin"
 
-        # Reset to Rachel
-        client.put("/api/settings", json={"voice_id": "21m00Tcm4TlvDq8ikWAM"})
+        # Reset to timmy
+        client.put("/api/settings", json={"voice_id": "timmy"})
 
 
 class TestBriefingEndpoints:
@@ -216,9 +208,9 @@ class TestVoiceEndpoints:
 
     def test_voice_preview_endpoint_exists(self, client):
         """Test voice preview endpoint exists (requires valid voice ID)."""
-        # Using a real ElevenLabs voice ID to test the endpoint
-        response = client.get("/api/voices/pNInz6obpgDQGcFmaJgB/preview")
-        # May return 200 (audio) or 500 (API key missing) - but not 404
+        # Using a Chatterbox voice ID to test the endpoint
+        response = client.get("/api/voices/timmy/preview")
+        # May return 200 (audio) or 500 (Chatterbox not available) - but not 404
         assert response.status_code != 404
 
     def test_list_voices_endpoint_exists(self, client):
@@ -237,23 +229,19 @@ class TestVoiceEndpoints:
         assert isinstance(data["voices"], list)
         assert isinstance(data["total"], int)
 
-    def test_list_voices_only_returns_configured_custom_voices(self, client):
-        """Test that only explicitly configured custom voices are returned.
-
-        The voices endpoint should only return voices listed in
-        elevenlabs_custom_voice_ids config, not all account voices.
-        """
+    def test_list_voices_returns_chatterbox_voices(self, client):
+        """Test that voices endpoint returns Chatterbox voices."""
         response = client.get("/api/voices")
         assert response.status_code == 200
         data = response.json()
 
-        # Verify we get the configured custom voices (or empty if API key not set)
+        # Verify we get the Chatterbox voices
         voices = data["voices"]
-        if len(voices) > 0:
-            # If we have voices, each should have the expected fields
-            for voice in voices:
-                assert "voice_id" in voice
-                assert "name" in voice
+        assert len(voices) == 3  # timmy, austin, alice
+        for voice in voices:
+            assert "voice_id" in voice
+            assert "name" in voice
+            assert voice["voice_id"] in ["timmy", "austin", "alice"]
 
     def test_voice_preview_returns_audio(self, client):
         """Test voice preview returns audio content when file exists."""
@@ -267,52 +255,27 @@ class TestVoiceEndpoints:
             preview_dir = Path(tmp_dir) / "audio" / "previews"
             preview_dir.mkdir(parents=True)
 
-            # Create a fake MP3 file (just needs to be non-empty)
-            test_voice_id = "test_voice_123"
-            preview_file = preview_dir / f"{test_voice_id}.mp3"
+            # Create a fake MP3 file (using a valid Chatterbox voice ID)
+            test_voice_id = "timmy"
+            preview_file = preview_dir / f"chatterbox_{test_voice_id}.mp3"
             preview_file.write_bytes(b"fake mp3 content for testing")
 
             # Patch the settings to use our temp directory
             with patch("src.api.routes.voices.settings") as mock_settings:
                 mock_settings.assets_dir = Path(tmp_dir)
-                mock_settings.elevenlabs_api_key = "test_key"
-                mock_settings.elevenlabs_model_id = "test_model"
+                mock_settings.chatterbox_url = "http://localhost:8004"
+                mock_settings.chatterbox_dev_url = "http://localhost:8004"
 
                 response = client.get(f"/api/voices/{test_voice_id}/preview")
                 assert response.status_code == 200
                 assert response.headers["content-type"] == "audio/mpeg"
                 assert len(response.content) > 0
 
-    def test_voice_preview_deletes_empty_files(self, client):
-        """Test that empty preview files are deleted and regenerated."""
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import patch, MagicMock
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # Preview dir is now assets_dir / "audio" / "previews"
-            preview_dir = Path(tmp_dir) / "audio" / "previews"
-            preview_dir.mkdir(parents=True)
-
-            # Create an empty file (simulating failed previous generation)
-            test_voice_id = "empty_voice_456"
-            preview_file = preview_dir / f"{test_voice_id}.mp3"
-            preview_file.write_bytes(b"")  # Empty file
-
-            # Mock the settings and ElevenLabs client
-            with patch("src.api.routes.voices.settings") as mock_settings:
-                mock_settings.assets_dir = Path(tmp_dir)
-                mock_settings.elevenlabs_api_key = None  # Will cause 500 error
-
-                response = client.get(f"/api/voices/{test_voice_id}/preview")
-
-                # Should fail with 500 because API key is not configured
-                # but the empty file should have been deleted
-                assert response.status_code == 500
-                assert "ElevenLabs API key not configured" in response.json()["detail"]
-
-                # Empty file should be deleted
-                assert not preview_file.exists()
+    def test_voice_preview_invalid_voice_returns_error(self, client):
+        """Test that previewing an invalid voice ID returns an error."""
+        response = client.get("/api/voices/invalid_voice_id/preview")
+        assert response.status_code == 400
+        assert "Unknown voice ID" in response.json()["detail"]
 
     def test_voice_preview_caches_files(self, client):
         """Test that preview files are cached and reused."""
@@ -325,13 +288,15 @@ class TestVoiceEndpoints:
             preview_dir = Path(tmp_dir) / "audio" / "previews"
             preview_dir.mkdir(parents=True)
 
-            test_voice_id = "cached_voice_789"
-            preview_file = preview_dir / f"{test_voice_id}.mp3"
+            # Use a valid Chatterbox voice ID
+            test_voice_id = "austin"
+            preview_file = preview_dir / f"chatterbox_{test_voice_id}.mp3"
             preview_file.write_bytes(b"cached mp3 content")
 
             with patch("src.api.routes.voices.settings") as mock_settings:
                 mock_settings.assets_dir = Path(tmp_dir)
-                mock_settings.elevenlabs_api_key = "test_key"
+                mock_settings.chatterbox_url = "http://localhost:8004"
+                mock_settings.chatterbox_dev_url = "http://localhost:8004"
 
                 # First request
                 response1 = client.get(f"/api/voices/{test_voice_id}/preview")

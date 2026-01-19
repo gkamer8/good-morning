@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agents.orchestrator import generate_briefing_task
+from src.briefing.orchestrator import generate_briefing_task
 from src.api.schemas import (
     BriefingCreate,
     BriefingListResponse,
@@ -61,8 +61,6 @@ async def generate_briefing(
         generate_briefing_task,
         briefing_id=briefing.id,
         user_id=user.id,
-        override_length=request.override_length,
-        override_topics=request.override_topics,
     )
 
     return GenerationStatus(

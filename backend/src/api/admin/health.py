@@ -118,48 +118,50 @@ async def check_anthropic_health() -> dict:
     }
 
 
-async def check_elevenlabs_health() -> dict:
-    """Check ElevenLabs API connectivity."""
-    if not settings.elevenlabs_api_key:
-        return {
-            "name": "ElevenLabs API",
-            "status": "not_configured",
-            "response_time_ms": 0,
-            "error": "API key not configured",
-        }
+async def check_chatterbox_health() -> dict:
+    """Check Chatterbox TTS connectivity."""
     start_time = time.time()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "https://api.elevenlabs.io/v1/voices",
-                headers={"xi-api-key": settings.elevenlabs_api_key}
-            )
+            # Try main URL first
+            try:
+                response = await client.get(f"{settings.chatterbox_url}/health")
+                if response.status_code == 200:
+                    elapsed = time.time() - start_time
+                    return {
+                        "name": "Chatterbox TTS",
+                        "status": "ok",
+                        "response_time_ms": int(elapsed * 1000),
+                        "error": None,
+                    }
+            except httpx.ConnectError:
+                pass
+
+            # Try dev URL
+            try:
+                response = await client.get(f"{settings.chatterbox_dev_url}/health")
+                if response.status_code == 200:
+                    elapsed = time.time() - start_time
+                    return {
+                        "name": "Chatterbox TTS",
+                        "status": "ok",
+                        "response_time_ms": int(elapsed * 1000),
+                        "error": None,
+                    }
+            except httpx.ConnectError:
+                pass
+
             elapsed = time.time() - start_time
-            if response.status_code == 200:
-                return {
-                    "name": "ElevenLabs API",
-                    "status": "ok",
-                    "response_time_ms": int(elapsed * 1000),
-                    "error": None,
-                }
-            elif response.status_code == 401:
-                return {
-                    "name": "ElevenLabs API",
-                    "status": "error",
-                    "response_time_ms": int(elapsed * 1000),
-                    "error": "Invalid API key",
-                }
-            else:
-                return {
-                    "name": "ElevenLabs API",
-                    "status": "error",
-                    "response_time_ms": int(elapsed * 1000),
-                    "error": f"HTTP {response.status_code}",
-                }
+            return {
+                "name": "Chatterbox TTS",
+                "status": "not_configured",
+                "response_time_ms": int(elapsed * 1000),
+                "error": "Chatterbox server not reachable",
+            }
     except Exception as e:
         elapsed = time.time() - start_time
         return {
-            "name": "ElevenLabs API",
+            "name": "Chatterbox TTS",
             "status": "error",
             "response_time_ms": int(elapsed * 1000),
             "error": str(e)[:100],
@@ -170,13 +172,13 @@ async def check_elevenlabs_health() -> dict:
 async def admin_health_page(request: Request):
     """Admin health check page - shows status of all external dependencies."""
     from . import is_authenticated
-    
+
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
 
     # Run all health checks in parallel
     rss_checks = [check_url_health(name, url) for name, url in RSS_FEEDS_TO_CHECK.items()]
-    
+
     api_checks = []
     for name, config in EXTERNAL_APIS_TO_CHECK.items():
         if isinstance(config, tuple):
@@ -188,7 +190,7 @@ async def admin_health_page(request: Request):
     internal_checks = [
         check_minio_health(),
         check_anthropic_health(),
-        check_elevenlabs_health(),
+        check_chatterbox_health(),
     ]
 
     # Execute all checks concurrently
@@ -251,4 +253,3 @@ async def admin_health_page(request: Request):
             "last_checked": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         },
     )
-

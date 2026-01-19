@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 
-from src.agents.orchestrator import generate_briefing_task
+from src.briefing.orchestrator import generate_briefing_task
 from src.storage.database import Briefing, Schedule, User, UserSettings, async_session, init_db
 from src.utils.timezone import get_user_now
 

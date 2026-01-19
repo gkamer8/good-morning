@@ -1,42 +1,43 @@
-"""TTS provider implementations (ElevenLabs, Edge TTS, Chatterbox)."""
+"""TTS provider implementations (Edge TTS and Chatterbox).
 
-import asyncio
+Provider functions receive a Voice object and introspect it ONCE
+to extract the API-specific parameters.
+"""
+
 from pathlib import Path
 
 import edge_tts
 import httpx
-from elevenlabs import ElevenLabs
 from pydub import AudioSegment as PydubSegment
 
 from src.config import get_settings
 
-from .profiles import CHATTERBOX_VOICE_PROFILES, DEFAULT_CHATTERBOX_VOICE
+from .voice import (
+    ChatterboxCloneVoice,
+    ChatterboxPredefinedVoice,
+    EdgeVoice,
+)
 
 
 async def generate_audio_edge_tts(
     text: str,
-    voice: str,
+    voice: EdgeVoice,
     output_path: Path,
-    voice_speed: float = 1.0,
 ) -> float:
     """Generate audio using Edge TTS (Microsoft TTS).
 
     Args:
         text: Text to convert to speech
-        voice: Edge TTS voice name (e.g., "en-US-GuyNeural")
+        voice: Edge voice configuration (introspected HERE for API params)
         output_path: Path to save the audio file
         voice_speed: Speed multiplier (1.0 = normal)
 
     Returns:
         Duration in seconds
     """
-    if voice_speed != 1.0:
-        rate_percent = int((voice_speed - 1.0) * 100)
-        rate = f"{rate_percent:+d}%"
-    else:
-        rate = "+0%"
-
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
+    # INTROSPECTION POINT: Extract API-specific parameter
+    voice_name = voice.voice_name
+    communicate = edge_tts.Communicate(text, voice_name, rate=1.0)
     await communicate.save(str(output_path))
 
     audio = PydubSegment.from_mp3(output_path)
@@ -47,14 +48,14 @@ async def generate_audio_edge_tts(
 
 async def generate_audio_chatterbox(
     text: str,
-    voice_id: str,
+    voice: ChatterboxCloneVoice | ChatterboxPredefinedVoice,
     output_path: Path,
 ) -> float:
     """Generate audio using Chatterbox TTS (self-hosted).
 
     Args:
         text: Text to convert to speech
-        voice_id: Chatterbox voice ID (e.g., "timmy", "austin", "alice")
+        voice: Chatterbox voice configuration (introspected HERE for API params)
         output_path: Path to save the audio file
 
     Returns:
@@ -62,14 +63,10 @@ async def generate_audio_chatterbox(
     """
     settings = get_settings()
 
-    voice_config = CHATTERBOX_VOICE_PROFILES.get(
-        voice_id.lower(),
-        CHATTERBOX_VOICE_PROFILES[DEFAULT_CHATTERBOX_VOICE]
-    )
-
+    # INTROSPECTION POINT: Extract API-specific parameters based on mode
     payload = {
         "text": text,
-        "voice_mode": voice_config["voice_mode"],
+        "voice_mode": voice.mode,
         "output_format": "mp3",
         "split_text": True,
         "chunk_size": 500,
@@ -79,10 +76,10 @@ async def generate_audio_chatterbox(
         "seed": 1986,
     }
 
-    if voice_config["voice_mode"] == "clone":
-        payload["reference_audio_filename"] = voice_config["reference_audio_filename"]
+    if voice.mode == "clone":
+        payload["reference_audio_filename"] = voice.reference_audio_filename
     else:
-        payload["predefined_voice_id"] = voice_config["predefined_voice_id"]
+        payload["predefined_voice_id"] = voice.predefined_voice_id
 
     chatterbox_url = settings.chatterbox_url
 
@@ -102,80 +99,3 @@ async def generate_audio_chatterbox(
     duration_seconds = len(audio) / 1000.0
 
     return duration_seconds
-
-
-async def generate_audio_elevenlabs(
-    text: str,
-    voice_id: str,
-    output_path: Path,
-    client: ElevenLabs,
-    voice_style: str = "energetic",
-    voice_speed: float = 1.1,
-) -> float:
-    """Generate audio using ElevenLabs.
-
-    Args:
-        text: Text to convert to speech
-        voice_id: ElevenLabs voice ID
-        output_path: Path to save the audio file
-        client: ElevenLabs client
-        voice_style: Style of delivery (energetic, calm, professional)
-        voice_speed: Speed multiplier (1.0 = normal)
-
-    Returns:
-        Duration in seconds
-    """
-    settings = get_settings()
-
-    voice_settings_map = {
-        "energetic": {
-            "stability": 0.35,
-            "similarity_boost": 0.75,
-            "style": 0.65,
-            "use_speaker_boost": True,
-        },
-        "professional": {
-            "stability": 0.60,
-            "similarity_boost": 0.80,
-            "style": 0.30,
-            "use_speaker_boost": True,
-        },
-        "calm": {
-            "stability": 0.75,
-            "similarity_boost": 0.70,
-            "style": 0.15,
-            "use_speaker_boost": False,
-        },
-    }
-
-    style_config = voice_settings_map.get(voice_style, voice_settings_map["energetic"])
-
-    def generate_sync():
-        audio_generator = client.text_to_speech.convert(
-            voice_id=voice_id,
-            text=text,
-            model_id=settings.elevenlabs_model_id,
-            output_format="mp3_44100_128",
-            voice_settings={
-                "stability": style_config["stability"],
-                "similarity_boost": style_config["similarity_boost"],
-                "style": style_config["style"],
-                "use_speaker_boost": style_config["use_speaker_boost"],
-            },
-        )
-        with open(output_path, "wb") as f:
-            for chunk in audio_generator:
-                f.write(chunk)
-
-    await asyncio.to_thread(generate_sync)
-
-    audio = PydubSegment.from_mp3(output_path)
-
-    if voice_speed != 1.0 and 0.5 <= voice_speed <= 2.0:
-        audio = audio.speedup(playback_speed=voice_speed)
-        audio.export(output_path, format="mp3")
-
-    duration_seconds = len(audio) / 1000.0
-
-    return duration_seconds
-

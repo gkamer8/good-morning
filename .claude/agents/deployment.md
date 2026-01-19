@@ -241,7 +241,6 @@ ssh altair "docker network inspect morning-drive-network"
 
 Required in production `.env`:
 - `ANTHROPIC_API_KEY` - Claude API key
-- `ELEVENLABS_API_KEY` - ElevenLabs TTS API key
 - `ADMIN_PASSWORD` - Admin dashboard password
 
 Optional:

@@ -38,7 +38,7 @@ good-morning/
 │   ├── src/
 │   │   ├── agents/       # Claude-powered content orchestration
 │   │   ├── tools/        # Data fetching (news, sports, weather)
-│   │   ├── audio/        # ElevenLabs TTS + audio assembly
+│   │   ├── audio/        # TTS + audio assembly
 │   │   ├── api/          # REST API endpoints
 │   │   └── templates/    # Documentation website
 │   └── Dockerfile

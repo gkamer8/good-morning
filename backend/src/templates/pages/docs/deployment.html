@@ -63,7 +63,6 @@ nano .env</code></pre>
 <h4>Required .env Configuration</h4>
 <pre><code># API Keys
 ANTHROPIC_API_KEY=sk-ant-xxxxx
-ELEVENLABS_API_KEY=xxxxx
 
 # Admin password - CHANGE THIS!
 ADMIN_PASSWORD=your-secure-password</code></pre>
@@ -123,12 +122,11 @@ docker compose -f docker-compose.yml up -d --build</code></pre>
     </thead>
     <tbody>
         <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Yes</td><td>Claude API key for content generation</td></tr>
-        <tr><td><code>ELEVENLABS_API_KEY</code></td><td>Yes</td><td>ElevenLabs API key for TTS</td></tr>
         <tr><td><code>ADMIN_PASSWORD</code></td><td>Yes</td><td>Password for admin panel access</td></tr>
         <tr><td><code>IMAGE_TAG</code></td><td>No</td><td>Docker image tag (default: latest)</td></tr>
         <tr><td><code>MINIO_ACCESS_KEY</code></td><td>No</td><td>MinIO access key (default: minioadmin)</td></tr>
         <tr><td><code>MINIO_SECRET_KEY</code></td><td>No</td><td>MinIO secret key (default: minioadmin)</td></tr>
-        <tr><td><code>ELEVENLABS_CUSTOM_VOICE_IDS</code></td><td>No</td><td>Comma-separated custom voice IDs</td></tr>
+        <tr><td><code>CHATTERBOX_URL</code></td><td>No</td><td>Chatterbox TTS server URL (default: http://host.docker.internal:8004)</td></tr>
     </tbody>
 </table>
 

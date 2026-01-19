@@ -4,12 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.schemas import SettingsResponse, SettingsUpdate
+from src.api.schemas import DEFAULT_SEGMENT_ORDER, SettingsResponse, SettingsUpdate
+from src.audio.tts import VOICES
 from src.auth.middleware import get_current_user
 from src.config import get_settings
 from src.storage.database import User, UserSettings, get_session
-
-from .voices import DEFAULT_CHATTERBOX_VOICE_ID, DEFAULT_VOICE_ID, get_valid_voice_ids
 
 
 router = APIRouter()
@@ -28,7 +27,12 @@ async def get_settings_endpoint(
     user_settings = result.scalar_one_or_none()
 
     if not user_settings:
-        user_settings = UserSettings(user_id=user.id)
+        user_settings = UserSettings(
+            user_id=user.id,
+            voice_key="chatterbox_timmy",
+            voice_style="energetic",
+            voice_speed=1.1,
+        )
         session.add(user_settings)
         await session.commit()
         await session.refresh(user_settings)
@@ -44,11 +48,10 @@ async def get_settings_endpoint(
         include_intro_music=user_settings.include_intro_music,
         include_transitions=user_settings.include_transitions,
         news_exclusions=user_settings.news_exclusions or [],
-        voice_id=user_settings.voice_id,
+        voice_key=user_settings.voice_key,
         voice_style=user_settings.voice_style,
         voice_speed=user_settings.voice_speed,
-        tts_provider=user_settings.tts_provider or "elevenlabs",
-        segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
+        segment_order=user_settings.segment_order or DEFAULT_SEGMENT_ORDER,
         include_music=user_settings.include_music or False,
         writing_style=user_settings.writing_style or "good_morning_america",
         timezone=user_settings.timezone or "America/New_York",
@@ -82,16 +85,11 @@ async def update_settings(
             user_settings.sports_teams = [t.model_dump() if hasattr(t, "model_dump") else t for t in value]
         elif field == "weather_locations":
             user_settings.weather_locations = [loc.model_dump() if hasattr(loc, "model_dump") else loc for loc in value]
-        elif field == "voice_id":
-            current_provider = update_data.get("tts_provider", user_settings.tts_provider)
-            valid_voices = get_valid_voice_ids(current_provider)
-            if valid_voices and value not in valid_voices:
-                if current_provider == "chatterbox":
-                    user_settings.voice_id = DEFAULT_CHATTERBOX_VOICE_ID
-                else:
-                    user_settings.voice_id = DEFAULT_VOICE_ID
-            else:
-                user_settings.voice_id = value
+        elif field == "voice_key":
+            # Validate voice_key exists
+            if value not in VOICES:
+                raise HTTPException(status_code=400, detail=f"Unknown voice_key: {value}")
+            user_settings.voice_key = value
         elif field == "news_topics":
             user_settings.news_topics = value
         elif field == "news_sources":
@@ -112,8 +110,6 @@ async def update_settings(
             user_settings.voice_style = value
         elif field == "voice_speed":
             user_settings.voice_speed = value
-        elif field == "tts_provider":
-            user_settings.tts_provider = value
         elif field == "segment_order":
             user_settings.segment_order = value
         elif field == "include_music":
@@ -139,15 +135,13 @@ async def update_settings(
         include_intro_music=user_settings.include_intro_music,
         include_transitions=user_settings.include_transitions,
         news_exclusions=user_settings.news_exclusions or [],
-        voice_id=user_settings.voice_id,
+        voice_key=user_settings.voice_key,
         voice_style=user_settings.voice_style,
         voice_speed=user_settings.voice_speed,
-        tts_provider=user_settings.tts_provider or "elevenlabs",
-        segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
+        segment_order=user_settings.segment_order or DEFAULT_SEGMENT_ORDER,
         include_music=user_settings.include_music or False,
         writing_style=user_settings.writing_style or "good_morning_america",
         timezone=user_settings.timezone or "America/New_York",
         deep_dive_enabled=user_settings.deep_dive_enabled,
         updated_at=user_settings.updated_at,
     )
-

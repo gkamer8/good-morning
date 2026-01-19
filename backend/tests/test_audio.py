@@ -141,15 +141,15 @@ class TestBriefingScriptValidation:
             segments=[
                 ScriptSegment(
                     type="intro",
-                    items=[ScriptSegmentItem(voice="host", text="Good morning!")],
+                    items=[ScriptSegmentItem(text="Good morning!")],
                 ),
                 ScriptSegment(
                     type="news",
-                    items=[ScriptSegmentItem(voice="host", text="Today's news...")],
+                    items=[ScriptSegmentItem(text="Today's news...")],
                 ),
                 ScriptSegment(
                     type="outro",
-                    items=[ScriptSegmentItem(voice="host", text="That's all!")],
+                    items=[ScriptSegmentItem(text="That's all!")],
                 ),
             ],
         )
@@ -168,7 +168,7 @@ class TestBriefingScriptValidation:
             segments=[
                 ScriptSegment(
                     type="intro",
-                    items=[ScriptSegmentItem(voice="host", text="Good morning!")],
+                    items=[ScriptSegmentItem(text="Good morning!")],
                 ),
             ],
         )

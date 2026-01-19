@@ -21,9 +21,12 @@
     </thead>
     <tbody>
         <tr><td>Anthropic</td><td>Claude AI for content generation</td><td><a href="https://console.anthropic.com">console.anthropic.com</a></td></tr>
-        <tr><td>ElevenLabs</td><td>Text-to-speech</td><td><a href="https://elevenlabs.io">elevenlabs.io</a></td></tr>
     </tbody>
 </table>
+
+<div class="note">
+    <strong>Text-to-Speech:</strong> Morning Drive uses Chatterbox (self-hosted) by default or Edge TTS (free, Microsoft) as alternatives. No API key required for TTS.
+</div>
 
 <div class="note">
     <strong>Note:</strong> Weather and news APIs are optional. Morning Drive uses free services (Open-Meteo for weather, RSS feeds for news) by default.
@@ -45,7 +48,6 @@ nano .env</code></pre>
 
 <p>Required environment variables:</p>
 <pre><code>ANTHROPIC_API_KEY=sk-ant-...
-ELEVENLABS_API_KEY=...
 ADMIN_PASSWORD=your-secure-password</code></pre>
 
 <h3>Step 3: Start the Server</h3>

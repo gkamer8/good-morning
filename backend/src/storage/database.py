@@ -147,13 +147,10 @@ class UserSettings(Base):
         JSON, default=list  # e.g. ["earthquakes outside US", "celebrity gossip"]
     )
 
-    # Voice settings
-    voice_id: Mapped[str] = mapped_column(String(100), default="timmy")  # Chatterbox voice ID
-    voice_style: Mapped[str] = mapped_column(String(50), default="energetic")  # energetic, calm, professional
-    voice_speed: Mapped[float] = mapped_column(Float, default=1.1)  # 0.5-2.0, slightly faster for energy
-
-    # TTS Provider: "chatterbox" (self-hosted), "elevenlabs" (paid), or "edge" (free, Microsoft)
-    tts_provider: Mapped[str] = mapped_column(String(50), default="chatterbox")
+    # Voice settings - voice_key references a Voice in VOICES dict
+    voice_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    voice_style: Mapped[str] = mapped_column(String(50), nullable=False)  # energetic, calm, professional
+    voice_speed: Mapped[float] = mapped_column(Float, nullable=False)  # 0.5-2.0
 
     # Segment ordering - controls the order of content in briefings
     segment_order: Mapped[dict] = mapped_column(
@@ -251,12 +248,11 @@ async def migrate_db():
         "user_settings": {
             "user_id": ("INTEGER", "NULL"),  # FK to users table
             "news_exclusions": ("TEXT", "[]"),  # JSON stored as TEXT in SQLite
-            "voice_id": ("VARCHAR(100)", "'pNInz6obpgDQGcFmaJgB'"),
+            "voice_key": ("VARCHAR(100)", "'chatterbox_timmy'"),  # Key into VOICES dict
             "voice_style": ("VARCHAR(50)", "'energetic'"),
             "voice_speed": ("FLOAT", "1.1"),
             "segment_order": ("TEXT", "'[\"news\", \"sports\", \"weather\", \"fun\"]'"),
             "include_music": ("BOOLEAN", "0"),
-            "tts_provider": ("VARCHAR(50)", "'elevenlabs'"),
             "writing_style": ("VARCHAR(50)", "'good_morning_america'"),
             "briefing_length": ("VARCHAR(10)", "'short'"),  # "short" or "long"
             "timezone": ("VARCHAR(50)", "'America/New_York'"),  # IANA timezone string

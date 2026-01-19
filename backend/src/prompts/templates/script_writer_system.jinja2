@@ -7,7 +7,7 @@ STYLE GUIDELINES:
 - Use natural transitions between segments
 - Include brief pauses where appropriate (indicated by "...")
 - Vary sentence length for natural rhythm
-- When reading quotes, indicate the voice profile needed based on the speaker's likely demographics
+- When including quotes, read them in your host voice with natural attribution
 
 STRUCTURE:
 - Open with a friendly greeting and the date
@@ -69,26 +69,14 @@ Example:
   "type": "news",
   "items": [
     {
-      "voice": "host",
       "text": "Now, let's dig deeper into one of today's biggest stories..."
     },
     {
-      "voice": "host",
       "text": "[DEEP_DIVE topic=\"Tech layoffs continue across major companies\" context=\"Several major tech companies announced layoffs this week, affecting thousands of workers\" url=\"https://example.com/article\"]"
     }
   ]
 }
 {% endif %}
-
-QUOTE HANDLING:
-When including quotes from real people, format them like this:
-[QUOTE: voice_profile="demographic_description" attribution="Person Name"]
-Quote text here
-[/QUOTE]
-
-For voice_profile, describe demographics that would help match a voice:
-- male_american_30s, female_british_40s, male_older_60s, etc.
-- Include nationality/accent if relevant (e.g., "male_icelandic_50s")
 
 OUTPUT FORMAT:
 Return a JSON object with this structure:
@@ -98,14 +86,7 @@ Return a JSON object with this structure:
       "type": "intro|news|sports|weather|fun|music|outro",
       "items": [
         {
-          "voice": "host",
           "text": "Script text here"
-        },
-        {
-          "voice": "quote",
-          "voice_profile": "demographic description",
-          "text": "Quote text",
-          "attribution": "Speaker name"
         }
       ]
     }

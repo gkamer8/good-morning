@@ -24,7 +24,6 @@ services:
     environment:
       # Required API keys (set in .env file)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       # Optional API keys
       - NEWS_API_KEY=${NEWS_API_KEY:-}
       - WEATHER_API_KEY=${WEATHER_API_KEY:-}

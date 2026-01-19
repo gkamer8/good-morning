@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.schemas import SettingsResponse
+from src.api.schemas import DEFAULT_SEGMENT_ORDER, SettingsResponse
 from src.api.template_config import templates
 from src.storage.database import Briefing, Schedule, User, UserSettings, get_session
 
@@ -110,11 +110,10 @@ async def admin_get_user_settings(
         include_intro_music=user_settings.include_intro_music,
         include_transitions=user_settings.include_transitions,
         news_exclusions=user_settings.news_exclusions or [],
-        voice_id=user_settings.voice_id,
+        voice_key=user_settings.voice_key,
         voice_style=user_settings.voice_style,
         voice_speed=user_settings.voice_speed,
-        tts_provider=user_settings.tts_provider or "elevenlabs",
-        segment_order=user_settings.segment_order or ["news", "sports", "weather", "fun"],
+        segment_order=user_settings.segment_order or DEFAULT_SEGMENT_ORDER,
         include_music=user_settings.include_music or False,
         writing_style=user_settings.writing_style or "good_morning_america",
         timezone=user_settings.timezone or "America/New_York",

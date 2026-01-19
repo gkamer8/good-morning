@@ -2,6 +2,58 @@
  * Type definitions for Morning Drive app
  */
 
+// === Enums ===
+
+export enum TTSProvider {
+  EDGE = 'edge',
+  CHATTERBOX = 'chatterbox',
+}
+
+export enum SegmentType {
+  INTRO = 'intro',
+  NEWS = 'news',
+  SPORTS = 'sports',
+  WEATHER = 'weather',
+  FUN = 'fun',
+  MUSIC = 'music',
+  OUTRO = 'outro',
+  UNKNOWN = 'unknown',
+}
+
+// === Voice Types (discriminated union) ===
+
+export interface EdgeVoice {
+  provider: TTSProvider.EDGE;
+  voice_name: string;
+  display_name: string;
+}
+
+export interface ChatterboxCloneVoice {
+  provider: TTSProvider.CHATTERBOX;
+  mode: 'clone';
+  reference_audio_filename: string;
+  display_name: string;
+  description: string;
+}
+
+export interface ChatterboxPredefinedVoice {
+  provider: TTSProvider.CHATTERBOX;
+  mode: 'predefined';
+  predefined_voice_id: string;
+  display_name: string;
+  description: string;
+}
+
+export type Voice = EdgeVoice | ChatterboxCloneVoice | ChatterboxPredefinedVoice;
+
+// Voice response from API
+export interface VoiceInfo {
+  voice_key: string;
+  provider: TTSProvider;
+  display_name: string;
+  description?: string;
+}
+
 // === API Types ===
 
 export interface WeatherLocation {
@@ -17,7 +69,7 @@ export interface SportsTeam {
 }
 
 export interface BriefingSegment {
-  type: string;
+  type: SegmentType;
   start_time: number;
   end_time: number;
   title: string;
@@ -75,11 +127,10 @@ export interface UserSettings {
   include_intro_music: boolean;
   include_transitions: boolean;
   news_exclusions: string[];
-  voice_id: string;
+  voice_key: string;  // Key into VOICES (e.g., 'chatterbox_timmy', 'edge_guy')
   voice_style: string;
   voice_speed: number;
-  tts_provider: string;
-  segment_order: string[];
+  segment_order: SegmentType[];
   include_music: boolean;
   writing_style: string;
   deep_dive_enabled: boolean;
@@ -94,13 +145,6 @@ export interface Schedule {
   time_minute: number;
   timezone: string;
   next_run?: string;
-}
-
-export interface VoiceInfo {
-  voice_id: string;
-  name: string;
-  labels?: Record<string, string>;
-  description?: string;
 }
 
 // === App State Types ===
@@ -129,7 +173,39 @@ export type MainTabParamList = {
   SettingsTab: undefined;
 };
 
-// === Constants ===
+// === Voice Definitions (canonical, matching backend) ===
+
+export const VOICES: Record<string, VoiceInfo> = {
+  // Chatterbox voices
+  chatterbox_timmy: {
+    voice_key: 'chatterbox_timmy',
+    provider: TTSProvider.CHATTERBOX,
+    display_name: 'Timmy',
+    description: 'Custom voice clone',
+  },
+  chatterbox_austin: {
+    voice_key: 'chatterbox_austin',
+    provider: TTSProvider.CHATTERBOX,
+    display_name: 'Austin',
+    description: 'Male, American',
+  },
+  chatterbox_alice: {
+    voice_key: 'chatterbox_alice',
+    provider: TTSProvider.CHATTERBOX,
+    display_name: 'Alice',
+    description: 'Female, American',
+  },
+  // Edge TTS voices
+  edge_guy: {
+    voice_key: 'edge_guy',
+    provider: TTSProvider.EDGE,
+    display_name: 'Guy',
+    description: 'Microsoft Edge TTS',
+  },
+};
+
+
+// === Other Constants ===
 
 export const NEWS_TOPICS = [
   { id: 'top', label: 'Top Stories' },
@@ -183,30 +259,6 @@ export const DAYS_OF_WEEK = [
   { id: 6, label: 'Sunday', short: 'Sun' },
 ] as const;
 
-// ElevenLabs voice options (stock voices)
-export const ELEVENLABS_VOICE_OPTIONS = [
-  { id: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel', description: 'Female, American' },
-  { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam', description: 'Male, American' },
-  { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold', description: 'Male, American (mature)' },
-] as const;
-
-// Chatterbox voice options (self-hosted TTS)
-export const CHATTERBOX_VOICE_OPTIONS = [
-  { id: 'timmy', label: 'Timmy', description: 'Custom voice clone' },
-  { id: 'austin', label: 'Austin', description: 'Male, American' },
-  { id: 'alice', label: 'Alice', description: 'Female, American' },
-] as const;
-
-// Legacy alias for backwards compatibility
-export const VOICE_OPTIONS = ELEVENLABS_VOICE_OPTIONS;
-
-// Default voice IDs per provider
-export const DEFAULT_VOICE_IDS = {
-  elevenlabs: 'pNInz6obpgDQGcFmaJgB',  // Adam
-  chatterbox: 'timmy',
-  edge: 'en-US-GuyNeural',  // Not selectable, but here for reference
-} as const;
-
 export const VOICE_STYLES = [
   { id: 'energetic', label: 'Energetic', description: 'Upbeat morning show vibe' },
   { id: 'professional', label: 'Professional', description: 'News anchor style' },
@@ -220,13 +272,13 @@ export const WRITING_STYLES = [
 ] as const;
 
 export const SEGMENT_TYPES = [
-  { id: 'news', label: 'News', icon: 'newspaper-outline' },
-  { id: 'sports', label: 'Sports', icon: 'football-outline' },
-  { id: 'weather', label: 'Weather', icon: 'cloudy-outline' },
-  { id: 'fun', label: 'Fun Segments', icon: 'happy-outline' },
+  { id: SegmentType.NEWS, label: 'News', icon: 'newspaper-outline' },
+  { id: SegmentType.SPORTS, label: 'Sports', icon: 'football-outline' },
+  { id: SegmentType.WEATHER, label: 'Weather', icon: 'cloudy-outline' },
+  { id: SegmentType.FUN, label: 'Fun Segments', icon: 'happy-outline' },
 ] as const;
 
-export const DEFAULT_SEGMENT_ORDER = ['news', 'sports', 'weather', 'fun'];
+export const DEFAULT_SEGMENT_ORDER: SegmentType[] = [SegmentType.NEWS, SegmentType.SPORTS, SegmentType.WEATHER, SegmentType.FUN];
 
 export const BRIEFING_LENGTHS = [
   {
@@ -239,4 +291,10 @@ export const BRIEFING_LENGTHS = [
     label: 'Long',
     description: '~10 minutes • More stories, full sports coverage',
   },
+] as const;
+
+// TTS Providers
+export const TTS_PROVIDERS = [
+  { id: TTSProvider.CHATTERBOX, label: 'Chatterbox', description: 'Self-hosted' },
+  { id: TTSProvider.EDGE, label: 'Edge TTS', description: 'Free - Microsoft' },
 ] as const;

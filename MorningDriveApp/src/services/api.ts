@@ -5,7 +5,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Briefing,
-  BriefingLength,
   BriefingListResponse,
   GenerationStatus,
   Schedule,
@@ -103,13 +102,10 @@ class ApiClient {
 
   // === Briefings ===
 
-  async generateBriefing(options?: {
-    override_length?: BriefingLength;
-    override_topics?: string[];
-  }): Promise<GenerationStatus> {
+  async generateBriefing(): Promise<GenerationStatus> {
     return this.request<GenerationStatus>('/briefings/generate', {
       method: 'POST',
-      body: JSON.stringify(options || {}),
+      body: JSON.stringify({}),
     });
   }
 
@@ -151,14 +147,14 @@ class ApiClient {
     return `${this.baseUrl}${audioPath}`;
   }
 
-  getVoicePreviewUrl(voiceId: string): string {
-    return `${this.baseUrl}/api/voices/${voiceId}/preview`;
+  getVoicePreviewUrl(voiceKey: string): string {
+    return `${this.baseUrl}/api/voices/${voiceKey}/preview`;
   }
 
   // === Voices ===
 
-  async listVoices(ttsProvider?: string): Promise<{ voices: VoiceInfo[]; total: number }> {
-    const params = ttsProvider ? `?tts_provider=${ttsProvider}` : '';
+  async listVoices(provider?: string): Promise<{ voices: VoiceInfo[]; total: number }> {
+    const params = provider ? `?provider=${provider}` : '';
     return this.request<{ voices: VoiceInfo[]; total: number }>(`/voices${params}`);
   }
 

@@ -17,7 +17,6 @@ class Settings(BaseSettings):
 
     # API Keys
     anthropic_api_key: str = ""
-    elevenlabs_api_key: str = ""
     news_api_key: str = ""  # Optional - can use RSS feeds without it
     weather_api_key: str = ""  # Optional - Open-Meteo doesn't require one
 
@@ -27,17 +26,6 @@ class Settings(BaseSettings):
     # Storage paths
     data_dir: Path = Path("./data")
     assets_dir: Path = Path("./assets")
-
-    # ElevenLabs settings
-    elevenlabs_host_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Default: Rachel
-    elevenlabs_model_id: str = "eleven_turbo_v2_5"
-
-    # Custom voices to show in the app (in addition to stock voices)
-    # These are voice IDs from your ElevenLabs account that you want to include
-    elevenlabs_custom_voice_ids: list[str] = [
-        "BG48ZiEunXWfskS4bWOW",  # Firing Line
-        "2TiFwsBtPecBlV5028ac",  # Timmy C
-    ]
 
     # Chatterbox TTS settings (self-hosted)
     # Docker URL uses host.docker.internal to access host machine from container

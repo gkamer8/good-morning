@@ -2,7 +2,7 @@
  * Settings screen for configuring preferences
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -33,9 +33,10 @@ import {
   SPORTS_LEAGUES,
   FUN_SEGMENTS,
   DAYS_OF_WEEK,
-  ELEVENLABS_VOICE_OPTIONS,
-  CHATTERBOX_VOICE_OPTIONS,
-  DEFAULT_VOICE_IDS,
+  TTSProvider,
+  SegmentType,
+  VOICES,
+  TTS_PROVIDERS,
   VOICE_STYLES,
   WRITING_STYLES,
   SEGMENT_TYPES,
@@ -43,8 +44,6 @@ import {
   BRIEFING_LENGTHS,
   SportsTeam,
   WeatherLocation,
-  VoiceInfo,
-  BriefingLength,
 } from '../types';
 
 export function SettingsScreen() {
@@ -81,19 +80,19 @@ export function SettingsScreen() {
     };
   }, []);
 
-  const handlePlayPreview = async (voiceId: string) => {
+  const handlePlayPreview = async (voiceKey: string) => {
     // If clicking same voice that's playing, just stop
-    if (previewingVoice === voiceId) {
+    if (previewingVoice === voiceKey) {
       await stopVoicePreview();
       setPreviewingVoice(null);
       return;
     }
 
-    setPreviewLoading(voiceId);
+    setPreviewLoading(voiceKey);
 
     // Use api service for consistent URL handling
-    const previewUrl = api.getVoicePreviewUrl(voiceId);
-    console.log('handlePlayPreview: voiceId=', voiceId, 'url=', previewUrl);
+    const previewUrl = api.getVoicePreviewUrl(voiceKey);
+    console.log('handlePlayPreview: voiceKey=', voiceKey, 'url=', previewUrl);
 
     try {
       // First verify the URL is reachable using Range request (only downloads 1 byte)
@@ -123,7 +122,7 @@ export function SettingsScreen() {
 
       // URL is reachable, now play with TrackPlayer
       await playVoicePreview(previewUrl);
-      setPreviewingVoice(voiceId);
+      setPreviewingVoice(voiceKey);
     } catch (error: any) {
       console.log('Failed to play preview:', error);
       Alert.alert(
@@ -152,54 +151,19 @@ export function SettingsScreen() {
     queryFn: () => api.getSchedule(),
   });
 
-  // Fetch available voices (only needed for ElevenLabs to get custom voices)
-  const voicesQuery = useQuery({
-    queryKey: ['voices', settings?.tts_provider],
-    queryFn: () => api.listVoices(settings?.tts_provider),
-    staleTime: 1000 * 60 * 10, // Cache for 10 minutes
-    enabled: settings?.tts_provider === 'elevenlabs', // Only fetch for ElevenLabs
-  });
-
-  // Get voices based on selected TTS provider
-  const allVoices = React.useMemo(() => {
-    const currentProvider = settings?.tts_provider || 'chatterbox';
-
-    if (currentProvider === 'chatterbox') {
-      // Return Chatterbox voices
-      return CHATTERBOX_VOICE_OPTIONS.map(v => ({
-        id: v.id,
-        label: v.label,
-        description: v.description,
-        isCustom: false,
-      }));
-    } else if (currentProvider === 'edge') {
-      // Edge TTS uses fixed voice, no selection needed
-      return [];
-    } else {
-      // ElevenLabs - merge hardcoded with API voices
-      const hardcodedVoices = ELEVENLABS_VOICE_OPTIONS.map(v => ({
-        id: v.id,
-        label: v.label,
-        description: v.description,
-        isCustom: false,
-      }));
-
-      // Get API voices and find any that aren't in our hardcoded list
-      const apiVoices = voicesQuery.data?.voices || [];
-      const customVoices = apiVoices
-        .filter(v => !ELEVENLABS_VOICE_OPTIONS.some(opt => opt.id === v.voice_id))
-        .map(v => ({
-          id: v.voice_id,
-          label: v.name,
-          description: v.labels?.accent
-            ? `${v.labels.gender || 'Voice'}, ${v.labels.accent}`
-            : v.description || 'Custom voice',
-          isCustom: true,
-        }));
-
-      return [...customVoices, ...hardcodedVoices];
+  // Get the current provider from voice_key
+  const currentProvider = React.useMemo((): TTSProvider => {
+    const voiceKey = settings?.voice_key;
+    if (voiceKey && VOICES[voiceKey]) {
+      return VOICES[voiceKey].provider;
     }
-  }, [voicesQuery.data, settings?.tts_provider]);
+    return TTSProvider.CHATTERBOX;
+  }, [settings?.voice_key]);
+
+  // Get voices for the current provider
+  const allVoices = React.useMemo(() => {
+    return Object.values(VOICES).filter(v => v.provider === currentProvider);
+  }, [currentProvider]);
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
@@ -292,7 +256,7 @@ export function SettingsScreen() {
     updateScheduleMutation.mutate({ days_of_week: newDays });
   };
 
-  const handleMoveSegment = (segmentId: string, direction: 'up' | 'down') => {
+  const handleMoveSegment = (segmentId: SegmentType, direction: 'up' | 'down') => {
     if (!settings) return;
     const currentOrder = settings.segment_order || DEFAULT_SEGMENT_ORDER;
     const index = currentOrder.indexOf(segmentId);
@@ -1032,12 +996,8 @@ export function SettingsScreen() {
           {/* TTS Provider Selection */}
           <Text style={styles.voiceLabel}>TTS Provider</Text>
           <View style={styles.ttsProviderOptions}>
-            {[
-              { id: 'chatterbox', label: 'Chatterbox', description: 'Self-hosted' },
-              { id: 'elevenlabs', label: 'ElevenLabs', description: 'Paid - Premium' },
-              { id: 'edge', label: 'Edge TTS', description: 'Free - Microsoft' },
-            ].map((provider) => {
-              const isSelected = (settings?.tts_provider || 'chatterbox') === provider.id;
+            {TTS_PROVIDERS.map((provider) => {
+              const isSelected = currentProvider === provider.id;
               return (
                 <TouchableOpacity
                   key={provider.id}
@@ -1046,11 +1006,10 @@ export function SettingsScreen() {
                     isSelected && styles.ttsProviderOptionSelected,
                   ]}
                   onPress={() => {
-                    // Auto-reset voice_id to default for new provider
-                    const defaultVoice = DEFAULT_VOICE_IDS[provider.id as keyof typeof DEFAULT_VOICE_IDS] || 'timmy';
+                    // Switch to default voice for the new provider
+                    const defaultVoiceKey = provider.id === TTSProvider.EDGE ? 'edge_guy' : 'chatterbox_timmy';
                     updateSettingsMutation.mutate({
-                      tts_provider: provider.id,
-                      voice_id: defaultVoice,
+                      voice_key: defaultVoiceKey,
                     });
                   }}
                 >
@@ -1077,34 +1036,20 @@ export function SettingsScreen() {
           </View>
 
           <Text style={styles.voiceLabel}>Host Voice</Text>
-          {settings?.tts_provider === 'edge' ? (
-            <View style={styles.voiceOptions}>
-              <View style={[styles.voiceOption, { backgroundColor: '#f0f0f2' }]}>
-                <Text style={styles.voiceOptionText}>Guy (Microsoft Edge TTS)</Text>
-                <Text style={styles.voiceOptionDesc}>Edge TTS uses a fixed voice</Text>
-              </View>
-            </View>
-          ) : (
-            <>
-              <Text style={styles.voiceHint}>Tap the play button to preview each voice</Text>
-              {voicesQuery.isLoading && settings?.tts_provider === 'elevenlabs' && (
-                <View style={styles.voiceLoadingContainer}>
-                  <ActivityIndicator size="small" color="#4f46e5" />
-                  <Text style={styles.voiceLoadingText}>Loading voices...</Text>
-                </View>
-              )}
-              <View style={styles.voiceOptions}>
-                {allVoices.map((voice) => {
-              const isSelected = settings?.voice_id === voice.id;
-              const isPreviewing = previewingVoice === voice.id;
-              const isLoading = previewLoading === voice.id;
+          <Text style={styles.voiceHint}>Tap the play button to preview each voice</Text>
+          <View style={styles.voiceOptions}>
+            {allVoices.map((voice) => {
+              const isSelected = settings?.voice_key === voice.voice_key;
+              const isPreviewing = previewingVoice === voice.voice_key;
+              const isLoading = previewLoading === voice.voice_key;
+              const isCustomClone = voice.description === 'Custom voice clone';
               return (
                 <View
-                  key={voice.id}
+                  key={voice.voice_key}
                   style={[
                     styles.voiceOption,
                     isSelected && styles.voiceOptionSelected,
-                    voice.isCustom && styles.voiceOptionCustom,
+                    isCustomClone && styles.voiceOptionCustom,
                   ]}
                 >
                   <View style={styles.voiceOptionRow}>
@@ -1114,7 +1059,7 @@ export function SettingsScreen() {
                         isSelected && styles.previewButtonSelected,
                         isPreviewing && styles.previewButtonPlaying,
                       ]}
-                      onPress={() => handlePlayPreview(voice.id)}
+                      onPress={() => handlePlayPreview(voice.voice_key)}
                       activeOpacity={0.5}
                       hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                     >
@@ -1130,7 +1075,7 @@ export function SettingsScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.voiceOptionInfo}
-                      onPress={() => updateSettingsMutation.mutate({ voice_id: voice.id })}
+                      onPress={() => updateSettingsMutation.mutate({ voice_key: voice.voice_key })}
                       activeOpacity={0.7}
                     >
                       <View style={styles.voiceOptionNameRow}>
@@ -1140,9 +1085,9 @@ export function SettingsScreen() {
                             isSelected && styles.voiceOptionTextSelected,
                           ]}
                         >
-                          {voice.label}
+                          {voice.display_name}
                         </Text>
-                        {voice.isCustom && (
+                        {isCustomClone && (
                           <View style={[styles.customBadge, isSelected && styles.customBadgeSelected]}>
                             <Text style={[styles.customBadgeText, isSelected && styles.customBadgeTextSelected]}>Custom</Text>
                           </View>
@@ -1152,7 +1097,7 @@ export function SettingsScreen() {
                         styles.voiceOptionDesc,
                         isSelected && styles.voiceOptionDescSelected,
                       ]}>
-                        {voice.description}
+                        {voice.description || voice.provider}
                       </Text>
                     </TouchableOpacity>
                     {isSelected && (
@@ -1162,9 +1107,7 @@ export function SettingsScreen() {
                 </View>
               );
             })}
-              </View>
-            </>
-          )}
+          </View>
 
           <Text style={[styles.voiceLabel, { marginTop: 16 }]}>Delivery Style</Text>
           <View style={styles.styleOptions}>

@@ -12,7 +12,6 @@ services:
     environment:
       # Required API keys
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       # Optional API keys
       - NEWS_API_KEY=${NEWS_API_KEY:-}
       - WEATHER_API_KEY=${WEATHER_API_KEY:-}
@@ -69,7 +68,6 @@ services:
       - ./assets:/app/assets
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY:-}
       - WEATHER_API_KEY=${WEATHER_API_KEY:-}
       - DATABASE_URL=sqlite+aiosqlite:///./data/morning_drive.db
